@@ -58,7 +58,16 @@
   </branding>
 
   <releases>
-    <release version="@version@" date="2026-04-18">
+    <release version="@version@" date="2026-04-19">
+      <description>
+        <ul>
+          <li>New: "Now Playing" is reported to your server while you listen, so other Subsonic clients can see what's playing</li>
+          <li>New: seek support over MPRIS — jump to any position in the current track from desktop media controls</li>
+          <li>Bugfix: Fixed scrobble occasionally being recorded against the next track in the queue instead of the one that just finished</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.6.19" date="2026-04-18">
       <description>
         <ul>
           <li>New: quick-filter search in playlist views — press Ctrl+F or start typing to filter by title, artist, or album</li>
