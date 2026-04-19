@@ -42,6 +42,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static java.util.Optional.ofNullable;
 import static org.subsound.app.state.AppManager.SERVER_ID;
@@ -196,13 +197,22 @@ public class SubsonicClientV2 implements ServerClient {
         return builder.build();
     }
 
+    public static class HttpException extends RuntimeException {
+        public final int statusCode;
+        public final String body;
+        public HttpException(int statusCode, String body) {
+            super("HTTP status=" + statusCode + " body=" + body);
+            this.statusCode = statusCode;
+            this.body = body;
+        }
+    }
     private <T> T fetchJson(String path, Map<String, String> params, Class<T> responseClass) {
         var url = buildUrl(path, params);
         var request = new Request.Builder().url(url).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
             var body = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                throw new RuntimeException("HTTP " + response.code() + " from " + path + ": " + body);
+                throw new HttpException(response.code(), body);
             }
             return Utils.fromJson(body, responseClass);
         } catch (IOException e) {
@@ -219,7 +229,7 @@ public class SubsonicClientV2 implements ServerClient {
         try (Response response = httpClient.newCall(request).execute()) {
             var body = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                throw new RuntimeException("HTTP " + response.code() + " from " + path + ": " + body);
+                throw new HttpException(response.code(), body);
             }
             return Utils.fromJson(body, responseClass);
         } catch (IOException e) {
@@ -233,7 +243,7 @@ public class SubsonicClientV2 implements ServerClient {
         try (Response response = httpClient.newCall(request).execute()) {
             var body = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                throw new RuntimeException("HTTP " + response.code() + " from " + path + ": " + body);
+                throw new HttpException(response.code(), body);
             }
             var parsed = Utils.fromJson(body, PingResponseJson.class);
             if (!"ok".equalsIgnoreCase(parsed.subsonicResponse.status)) {
@@ -250,7 +260,7 @@ public class SubsonicClientV2 implements ServerClient {
         try (Response response = httpClient.newCall(request).execute()) {
             var body = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                throw new RuntimeException("HTTP " + response.code() + " from " + path + ": " + body);
+                throw new HttpException(response.code(), body);
             }
             var parsed = Utils.fromJson(body, PingResponseJson.class);
             if (!"ok".equalsIgnoreCase(parsed.subsonicResponse.status)) {
@@ -290,6 +300,7 @@ public class SubsonicClientV2 implements ServerClient {
             String version;
             String type;
             String serverVersion;
+            boolean openSubsonic;
         }
         @Override public String getStatus() { return subsonicResponse.status; }
     }
@@ -542,6 +553,7 @@ public class SubsonicClientV2 implements ServerClient {
             String status;
             String version;
             String serverVersion;
+            boolean openSubsonic;
             ScanStatusJson scanStatus;
         }
         @Override public String getStatus() { return subsonicResponse.status; }
@@ -973,6 +985,74 @@ public class SubsonicClientV2 implements ServerClient {
                 yield new ScanStatus.Scanning(count);
             }
         };
+    }
+
+    // name: songLyrics
+    // https://opensubsonic.netlify.app/docs/endpoints/getlyricsbysongid/
+    // /rest/getLyricsBySongId: id={songId}
+    public record OpenSubsonicExtension(
+            String name,
+            List<Integer> versions
+    ){}
+    public record OpenSubsonicExtensions(
+            boolean supported,
+            List<OpenSubsonicExtension> list
+    ){
+        public boolean supports(OpenSubsonicFeature feature) {
+            for (var e : list) {
+                return feature.value().equals(e.name());
+            }
+            return false;
+        }
+        public enum OpenSubsonicFeature {
+            FormPost("formPost"), // application/x-www-form-urlencoded
+            SongLyrics("songLyrics"),
+            IndexBasedQueue("indexBasedQueue"),
+            Transcode("transcode"),
+            TranscodeOffset("transcodeOffset"),
+            ;
+            private final String value;
+            OpenSubsonicFeature(String value) {
+                this.value = value;
+            }
+            public String value() {
+                return value;
+            }
+        }
+    }
+
+    static class SubsonicExtensionsResponseJson implements HasStatus {
+        @SerializedName("subsonic-response")
+        SubsonicExtensionsInner subsonicResponse;
+        static class SubsonicExtensionsInner {
+            String status;
+            String version;
+            String type;
+            String serverVersion;
+            boolean openSubsonic;
+            List<OpenSubsonicExtension> openSubsonicExtensions;
+        }
+        @Override public String getStatus() { return subsonicResponse.status; }
+    }
+
+    public OpenSubsonicExtensions getOpenSubsonicExtensions() {
+        try {
+            var res = fetchAndCheck("/rest/getOpenSubsonicExtensions", Map.of(), SubsonicExtensionsResponseJson.class);
+            var inner = res.subsonicResponse;
+            boolean supported = inner.openSubsonic;
+            List<OpenSubsonicExtension> list = inner.openSubsonicExtensions == null ? List.of() : inner.openSubsonicExtensions;
+            String str = list.stream().map(OpenSubsonicExtension::name).collect(Collectors.joining(", "));
+            log.info("getOpenSubsonicExtensions: got {}", str);
+            return new OpenSubsonicExtensions(supported, list);
+        } catch (HttpException e) {
+            // assume a 404 means endpoint does not exist so extensions are not supported
+            if (e.statusCode == 404) {
+                log.info("getOpenSubsonicExtensions: not supported error={}", e.getMessage());
+                return new OpenSubsonicExtensions(false, List.of());
+            }
+            log.warn("getOpenSubsonicExtensions: failed: {}", e.getMessage());
+            throw e;
+        }
     }
 
     @Override
