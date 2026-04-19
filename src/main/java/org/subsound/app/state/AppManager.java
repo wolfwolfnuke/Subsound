@@ -109,7 +109,15 @@ public class AppManager {
     private final AtomicBoolean isShutdown = new AtomicBoolean(false);
     private final PlaybackReporter playbackReporter;
     private volatile CompletableFuture<?> pendingPreferenceSave;
-    private volatile UUID scrobbledForRequestId = null;
+    // Scrobble session is bound to the actual song committed to the player (set after setSource),
+    // not to AppState.nowPlaying — which gets updated earlier during song switches and caused
+    // scrobbles to be recorded against the incoming song with the outgoing song's start time.
+    private final AtomicReference<ScrobbleSession> scrobbleSession = new AtomicReference<>();
+    // Snapshot of the last (session, playbackStartedAt, state) observed by the player listener.
+    // A position tick leaves all three unchanged and short-circuits; real transitions trigger a
+    // scrobble evaluation against the PREVIOUS observation — we need the outgoing startedAt
+    // because setSource/seek reset the live value before the transition's listener fire lands.
+    private final AtomicReference<Observation> lastObservation = new AtomicReference<>();
     private final AtomicInteger loadGeneration = new java.util.concurrent.atomic.AtomicInteger(0);
 
     private ToastOverlay toastOverlay;
@@ -166,7 +174,17 @@ public class AppManager {
 
         player.onStateChanged(next -> {
             this.setState(old -> old.withPlayer(next));
-            this.checkScrobble(next);
+            var sessionNow = this.scrobbleSession.get();
+            long startedNow = next.playbackStartedAt().map(Instant::toEpochMilli).orElse(0L);
+            var obs = new Observation(sessionNow, startedNow, next.state());
+            var prev = this.lastObservation.getAndSet(obs);
+            // Position ticks leave (session, startedAt, state) unchanged and are skipped here.
+            // On real transitions, score the PREVIOUS observation — its startedAt is the outgoing
+            // session's, which is the correct input for the threshold calc even after setSource
+            // has since reset the player's live playbackStartedAt.
+            if (prev != null && !prev.equals(obs)) {
+                this.evaluateScrobble(prev.session(), prev.playbackStartedAtMs());
+            }
         });
 
         this.currentState = BehaviorSubject.createDefault(buildState());
@@ -429,6 +447,11 @@ public class AppManager {
         if (!this.isShutdown.compareAndSet(false, true)) {
             return;
         }
+        // Catch a threshold-met scrobble on clean quit: no further transitions will fire.
+        this.evaluateScrobble(
+                this.scrobbleSession.get(),
+                this.player.getState().playbackStartedAt().map(Instant::toEpochMilli).orElse(0L)
+        );
         this.removeOnStateChanged(this.playbackReporter);
         this.playbackReporter.close();
         var start = System.currentTimeMillis();
@@ -576,6 +599,7 @@ public class AppManager {
         } catch (Exception e) {
             log.error("Failed to load song: id={} title={}", playCmd.song().id(), playCmd.song().title(), e);
             this.setState(old -> old.withNowPlaying(Optional.empty()));
+            this.scrobbleSession.set(null);
             this.toast(new PlayerAction.Toast(new org.gnome.adw.Toast("Failed to load song")));
             throw e;
         }
@@ -597,6 +621,7 @@ public class AppManager {
             if (!songCache.isCached(cacheQuery)) {
                 this.toast(new PlayerAction.Toast(new org.gnome.adw.Toast("Song not available offline")));
                 this.setState(old -> old.withNowPlaying(Optional.empty()));
+                this.scrobbleSession.set(null);
                 return null;
             }
         }
@@ -673,6 +698,15 @@ public class AppManager {
                 new AudioSource(cachedSong.uri(), songInfo.duration()),
                 startPlaying
         );
+        // Commit the scrobble session for this song. setSource has already reset
+        // playbackStartedAt to 0; the next PLAYING transition will set it to "now",
+        // which is what we want threshold calculations to measure against.
+        this.scrobbleSession.set(new ScrobbleSession(
+                songInfo.id(),
+                requestId,
+                songInfo.duration().toMillis(),
+                false
+        ));
         Utils.doAsync(this::prefetchNextSong);
 
         this.setState(old -> old.withNowPlaying(Optional.of(new NowPlaying(
@@ -1361,38 +1395,41 @@ public class AppManager {
         }
     }
 
-    //TODO: a more efficient way to detect when we should save a scrobble
-    //TODO: consider if this is better implemented in the PlayQueue
-    private void checkScrobble(PlaybinPlayer.PlayerState playerState) {
-        var nowPlaying = getState().nowPlaying();
-        if (nowPlaying.isEmpty()) {
-            this.scrobbledForRequestId = null;
-            return;
+    private record ScrobbleSession(
+            String songId,
+            UUID requestId,
+            long durationMs,
+            boolean scrobbled
+    ) {
+        ScrobbleSession markScrobbled() {
+            return new ScrobbleSession(songId, requestId, durationMs, true);
         }
-        var np = nowPlaying.get();
-        var requestId = np.requestId();
+    }
 
-        // Already scrobbled this playback instance
-        if (requestId.equals(this.scrobbledForRequestId)) {
-            return;
-        }
+    private record Observation(
+            @org.jspecify.annotations.Nullable ScrobbleSession session,
+            long playbackStartedAtMs,
+            PlaybinPlayer.PlayerStates state
+    ) {}
 
-        var source = playerState.source();
-        if (source.isEmpty()) {
+    /**
+     * Score a (session, startedAt) pair against the play-count threshold and record a scrobble
+     * if met. Called from the player state listener with the PREVIOUS observation's values on
+     * real transitions, and from {@link #shutdown()} with current values to catch clean quits
+     * mid-song past the threshold.
+     */
+    private void evaluateScrobble(@org.jspecify.annotations.Nullable ScrobbleSession session, long startedAtMs) {
+        if (session == null || session.scrobbled()) {
             return;
         }
-
-        var dur = source.get().duration();
-        if (dur.isEmpty()) {
+        long durMs = session.durationMs();
+        if (durMs <= 0 || startedAtMs <= 0) {
             return;
         }
-        long durMs = dur.get().toMillis();
-        if (durMs <= 0) {
+        long posMs = System.currentTimeMillis() - startedAtMs;
+        if (posMs <= 0) {
             return;
         }
-        var now = System.currentTimeMillis();
-        var playedStartedAt = playerState.playbackStartedAt().map(Instant::toEpochMilli).orElse(now);
-        long posMs = now - playedStartedAt;
 
         boolean thresholdMet;
         if (durMs < 30_000) {
@@ -1402,26 +1439,29 @@ public class AppManager {
             // Normal tracks: 50% of track or 4 minutes, whichever comes first
             thresholdMet = posMs >= durMs / 2 || posMs >= 4 * 60 * 1000;
         }
-
-        if (thresholdMet) {
-            scrobbledForRequestId = requestId;
-            double durationSecond = durMs / 1000.0;
-            double playedForSecond = posMs / 1000.0;
-            double playedPercentage = playedForSecond / durationSecond;
-            String playedPercentageStr = "%.1f".formatted(100 * playedPercentage);
-            var songId = np.song().id();
-            var title = np.song().title();
-            doAsync(() -> {
-                try {
-
-                    dbService.insertScrobble(songId, Instant.ofEpochMilli(playedStartedAt));
-                    scrobbleService.triggerSubmit();
-                    log.info("Scrobble recorded for song: duration={}s playback={}s playedPercentage={} songId={} title={}", durationSecond, playedForSecond, playedPercentageStr, songId, title);
-                } catch (Exception e) {
-                    log.error("Failed to record scrobble for song: {}", songId, e);
-                }
-            });
+        if (!thresholdMet) {
+            return;
         }
+        if (!scrobbleSession.compareAndSet(session, session.markScrobbled())) {
+            return;
+        }
+
+        double durationSecond = durMs / 1000.0;
+        double playedForMillis = Math.min(posMs, durMs);
+        double playedForSecond = playedForMillis / 1000.0;
+        double playedPercentage = playedForSecond / durationSecond;
+        String playedPercentageStr = "%.1f".formatted(100 * playedPercentage);
+        var songId = session.songId();
+        doAsync(() -> {
+            try {
+                dbService.insertScrobble(songId, Instant.ofEpochMilli(startedAtMs));
+                scrobbleService.triggerSubmit();
+                log.info("Scrobble recorded for song: duration={}s playback={}s playedPercentage={} songId={}",
+                        durationSecond, playedForSecond, playedPercentageStr, songId);
+            } catch (Exception e) {
+                log.error("Failed to record scrobble for song: {}", songId, e);
+            }
+        });
     }
 
     private void notifyListeners() {

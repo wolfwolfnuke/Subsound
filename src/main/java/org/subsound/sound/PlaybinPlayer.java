@@ -332,6 +332,14 @@ public class PlaybinPlayer implements Player {
         if (playerStates == END_OF_STREAM) {
             this.seekToStart();
         }
+        if (isPaused()) {
+            var pos = this.position;
+            if (pos != null) {
+                // play/pause transition: allow resetting the playbackStartedAtMillis
+                // a user can start a song, go AFK for 10 minutes, resume, and the threshold is already "met" without them actually listening
+                this.playbackStartedAtMillis = System.currentTimeMillis() - pos.toMillis();
+            }
+        }
         playbinEl.setState(State.PLAYING);
     }
 
