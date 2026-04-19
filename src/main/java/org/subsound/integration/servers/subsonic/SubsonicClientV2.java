@@ -705,10 +705,24 @@ public class SubsonicClientV2 implements ServerClient {
     }
 
     @Override
+    public void nowPlaying(ReportNowPlaying req) {
+        var songId = req.songId().orElse("");
+        if (songId.isBlank()) {
+            return;
+        }
+        fetchVoid("/rest/scrobble", Map.of(
+                "id", songId,
+                "time", String.valueOf(req.startedAt().toEpochMilli()),
+                "submission", "false"
+        ));
+    }
+
+    @Override
     public void scrobble(ScrobbleRequest req) {
         fetchVoid("/rest/scrobble", Map.of(
                 "id", req.songId(),
-                "time", String.valueOf(req.playedAt().toEpochMilli())
+                "time", String.valueOf(req.playedAt().toEpochMilli()),
+                "submission", "true"
         ));
     }
 

@@ -20,6 +20,7 @@ import org.subsound.integration.ServerClient.PlaylistRemoveSongRequest;
 import org.subsound.integration.ServerClient.PlaylistRenameRequest;
 import org.subsound.integration.ServerClient.SongInfo;
 import org.subsound.integration.ServerClient.TranscodeFormat;
+import org.subsound.integration.playbackreport.PlaybackReporter;
 import org.subsound.persistence.CachingClient;
 import org.subsound.persistence.DownloadManager;
 import org.subsound.persistence.ScrobbleService;
@@ -106,6 +107,7 @@ public class AppManager {
     private final NetworkMonitoring networkMonitor;
     private final Runnable onQuit;
     private final AtomicBoolean isShutdown = new AtomicBoolean(false);
+    private final PlaybackReporter playbackReporter;
     private volatile CompletableFuture<?> pendingPreferenceSave;
     private volatile UUID scrobbledForRequestId = null;
     private final AtomicInteger loadGeneration = new java.util.concurrent.atomic.AtomicInteger(0);
@@ -206,6 +208,8 @@ public class AppManager {
                 () -> this.client.get(),
                 () -> this.getState().networkState()
         );
+        this.playbackReporter = new PlaybackReporter(this.client::get);
+        this.addOnStateChanged(this.playbackReporter);
     }
 
     private void initServerConfig(Config config) {
@@ -425,6 +429,8 @@ public class AppManager {
         if (!this.isShutdown.compareAndSet(false, true)) {
             return;
         }
+        this.removeOnStateChanged(this.playbackReporter);
+        this.playbackReporter.close();
         var start = System.currentTimeMillis();
         timeIt(
                 duration -> log.info("shutdown: saveCurrentPlayerPreferencesImmediately: {}ms", duration.toMillis()),
@@ -1355,6 +1361,7 @@ public class AppManager {
         }
     }
 
+    //TODO: a more efficient way to detect when we should save a scrobble
     //TODO: consider if this is better implemented in the PlayQueue
     private void checkScrobble(PlaybinPlayer.PlayerState playerState) {
         var nowPlaying = getState().nowPlaying();

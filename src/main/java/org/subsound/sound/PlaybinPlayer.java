@@ -361,14 +361,13 @@ public class PlaybinPlayer implements Player {
 
     public void seekTo(Duration position) {
         //playbin.seek(1.0, Format.TIME, SeekFlags.FLUSH, SeekType.SET, 0, SeekType.NONE, 0);
-        this.playbackStartedAtMillis = 0;
+        this.playbackStartedAtMillis = System.currentTimeMillis();
         playbinEl.seekSimple(Format.TIME, Set.of(SeekFlags.ACCURATE, SeekFlags.FLUSH), position.toNanos());
         this.notifyState();
     }
 
     public void seekRelative(Duration offset) {
         //playbin.seek(1.0, Format.TIME, SeekFlags.FLUSH, SeekType.SET, 0, SeekType.NONE, 0);
-        this.playbackStartedAtMillis = 0;
         var p = this.getCurrentPosition();
         if (p.isEmpty()) {
             return;
@@ -377,6 +376,7 @@ public class PlaybinPlayer implements Player {
         if (nextPos.getSeconds() < 0) {
             nextPos = Duration.ZERO;
         }
+        this.playbackStartedAtMillis = System.currentTimeMillis();
         playbinEl.seekSimple(Format.TIME, Set.of(SeekFlags.ACCURATE, SeekFlags.FLUSH), nextPos.toNanos());
         this.notifyState();
     }

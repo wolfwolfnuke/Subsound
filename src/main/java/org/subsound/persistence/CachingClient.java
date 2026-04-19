@@ -311,6 +311,15 @@ public class CachingClient implements ServerClient {
     }
 
     @Override
+    public void nowPlaying(ReportNowPlaying req) {
+        if (isOffline()) {
+            log.info("nowPlaying: ignoring req={} because we are offline", req);
+            return;
+        }
+        this.delegate.nowPlaying(req);
+    }
+
+    @Override
     public void scrobble(ScrobbleRequest req) {
         this.delegate.scrobble(req);
     }

@@ -39,6 +39,7 @@ public interface ServerClient {
     ServerInfo getServerInfo();
     SearchResult search(String query);
     void scrobble(ScrobbleRequest req);
+    void nowPlaying(ReportNowPlaying req);
     URI getStreamUri(String songId);
     StreamResponse openStream(TranscodeInfo transcodeInfo);
     CoverArtResponse downloadCoverArt(CoverArt coverArt, int maxSize);
@@ -50,6 +51,9 @@ public interface ServerClient {
         record NotScanning() implements ScanStatus {}
     }
 
+    record ReportNowPlaying(Optional<String> songId, Instant startedAt, PlayerState playerState) {
+        public enum PlayerState{ PLAYING, PAUSED, STOPPED }
+    }
     record ScrobbleRequest(String songId, Instant playedAt) {}
     record SearchResult(
             List<ArtistEntry> artists,
