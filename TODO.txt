@@ -32,6 +32,14 @@ playqueue:
 - [ ] database as a backing store for the PlayQueue, so we can persist the queue across restarts.
 - [ ] when a song fails to download or otherwise start playing, skip to the next song in the playqueue
 
+navidrome:
+ - [X] report current playing song to navidrome: `scrobble?submission=false`
+ - [ ] playbackReport: https://opensubsonic.netlify.app/docs/extensions/playbackreport/
+ - [ ] "switch" to opensubsonic api: https://github.com/navidrome/navidrome/issues/2695
+ - [ ] feature detection for opensubsonic api
+    - [ ] load the available opensubsonic features
+ - [ ] switch to navidrome or opensubsonic authentication spec
+
 worklog:
 
 - [X] Starred page
