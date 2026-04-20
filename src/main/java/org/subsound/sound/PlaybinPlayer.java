@@ -57,11 +57,13 @@ public class PlaybinPlayer implements Player {
                 Optional.ofNullable(this.duration)
         ));
         long startedAtMillis = this.playbackStartedAtMillis;
+        long anchorAtMillis = this.positionAnchorAtMillis;
         return new PlayerState(
                 this.playerStates,
                 this.currentVolume,
                 this.muteState.get(),
                 startedAtMillis > 0 ? Optional.of(Instant.ofEpochMilli(startedAtMillis)) : Optional.empty(),
+                anchorAtMillis > 0 ? Optional.of(Instant.ofEpochMilli(anchorAtMillis)) : Optional.empty(),
                 source
         );
     }
@@ -73,6 +75,10 @@ public class PlaybinPlayer implements Player {
             double volume,
             boolean muted,
             Optional<Instant> playbackStartedAt,
+            // Wall-clock instant corresponding to stream position = 0 for the current segment.
+            // While PLAYING, current position ≈ now - positionAnchorAt. Moves on seek so UI can
+            // extrapolate locally without waiting for position-notifications.
+            Optional<Instant> positionAnchorAt,
             Optional<Source> source
     ) implements PlaybinPlayerPlayerStateBuilder.With {
     }
@@ -116,13 +122,15 @@ public class PlaybinPlayer implements Player {
     int busWatchId;
     // PlayerState should be the public view of the state of the player/player Pipeline
     PlayerStates playerStates = INIT;
-    // positionPublisher updates the player position while state is PLAYING
-    private final Thread positionPublisher;
     private URI currentUri;
     private double currentVolume = 1.0;
     private Duration duration;
     private volatile Duration position;
     private volatile long playbackStartedAtMillis;
+    // wall-clock epoch (ms) at which the current stream was (or would have been) at position=0.
+    // While PLAYING: position ≈ currentTimeMillis() - positionAnchorAtMillis.
+    // 0 means "no anchor yet" (set on first PLAYING transition / first position read).
+    private volatile long positionAnchorAtMillis;
     private AtomicBoolean muteState = new AtomicBoolean(false);
     // pipeline state tracks the current state of the GstPipeline
     State pipelineState = State.NULL;
@@ -154,6 +162,8 @@ public class PlaybinPlayer implements Player {
     public void setSource(URI uri, boolean startPlaying) {
         this.currentUri = uri;
         this.playbackStartedAtMillis = 0;
+        this.positionAnchorAtMillis = 0;
+        this.position = null;
         var fileUri = uri.toString();
         if ("file".equals(uri.getScheme())) {
             fileUri = fileUri.replace("file:/", "file:///");
@@ -275,6 +285,9 @@ public class PlaybinPlayer implements Player {
             prev = Duration.ZERO;
         }
         this.position = pos;
+        // Resync the position anchor to the authoritative pipeline position. Corrects any drift
+        // between wall-clock extrapolation (UI) and actual stream progress.
+        this.positionAnchorAtMillis = System.currentTimeMillis() - pos.toMillis();
         if (prev.toMillis() != position.toMillis()) {
             log.debug("Player.setPosition: {}", position.getSeconds());
             this.notifyState();
@@ -335,9 +348,13 @@ public class PlaybinPlayer implements Player {
         if (isPaused()) {
             var pos = this.position;
             if (pos != null) {
+                long now = System.currentTimeMillis();
                 // play/pause transition: allow resetting the playbackStartedAtMillis
                 // a user can start a song, go AFK for 10 minutes, resume, and the threshold is already "met" without them actually listening
-                this.playbackStartedAtMillis = System.currentTimeMillis() - pos.toMillis();
+                this.playbackStartedAtMillis = now - pos.toMillis();
+                // Reanchor for UI extrapolation: wall-clock time grew during pause but stream
+                // position didn't, so the anchor needs to jump forward by the pause duration.
+                this.positionAnchorAtMillis = now - pos.toMillis();
             }
         }
         playbinEl.setState(State.PLAYING);
@@ -369,7 +386,12 @@ public class PlaybinPlayer implements Player {
 
     public void seekTo(Duration position) {
         //playbin.seek(1.0, Format.TIME, SeekFlags.FLUSH, SeekType.SET, 0, SeekType.NONE, 0);
-        this.playbackStartedAtMillis = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
+        // Scrobble semantics: reset session-start so a seek-to-end can't falsely cross threshold.
+        this.playbackStartedAtMillis = now;
+        // UI anchor: seeking DOES move stream position, so anchor shifts accordingly.
+        this.positionAnchorAtMillis = now - position.toMillis();
+        this.position = position;
         playbinEl.seekSimple(Format.TIME, Set.of(SeekFlags.ACCURATE, SeekFlags.FLUSH), position.toNanos());
         this.notifyState();
     }
@@ -384,7 +406,10 @@ public class PlaybinPlayer implements Player {
         if (nextPos.getSeconds() < 0) {
             nextPos = Duration.ZERO;
         }
-        this.playbackStartedAtMillis = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
+        this.playbackStartedAtMillis = now;
+        this.positionAnchorAtMillis = now - nextPos.toMillis();
+        this.position = nextPos;
         playbinEl.seekSimple(Format.TIME, Set.of(SeekFlags.ACCURATE, SeekFlags.FLUSH), nextPos.toNanos());
         this.notifyState();
     }
@@ -428,9 +453,20 @@ public class PlaybinPlayer implements Player {
             case PAUSED -> PAUSED;
             case PLAYING -> PLAYING;
         };
+        var prevPlayerState = this.playerStates;
         this.playerStates = nextPlayerState;
         if (nextPlayerState == PLAYING && this.playbackStartedAtMillis == 0) {
-            this.playbackStartedAtMillis = System.currentTimeMillis();
+            long now = System.currentTimeMillis();
+            this.playbackStartedAtMillis = now;
+            var pos = this.position;
+            long posMs = pos != null ? pos.toMillis() : 0L;
+            this.positionAnchorAtMillis = now - posMs;
+        }
+        // Snap `this.position` forward to GStreamer's authoritative clock at the transition out
+        // of PLAYING. Without this, listeners would see a stale position (UI was extrapolating
+        // locally past `this.position`) and the scrubber would jump backward on pause.
+        if (prevPlayerState == PLAYING && nextPlayerState != PLAYING) {
+            this.onPositionChanged();
         }
         this.notifyState();
     }
@@ -485,29 +521,6 @@ public class PlaybinPlayer implements Player {
         }, "player-main-loop");
         playerLoopThread.start();
 
-        this.positionPublisher = Thread.startVirtualThread(() -> {
-            try {
-                while (true) {
-                    if (!playerLoopThread.isAlive()) {
-                        log.info("positionPublisher: playerLoopThread died, exiting");
-                        return;
-                    }
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                    if (playerStates != PLAYING) {
-                        continue;
-                    }
-                    // update the position
-                    this.onPositionChanged();
-                }
-            } finally {
-                log.info("positionPublisher: exited");
-            }
-        });
-
         // We set the input filename to the source element
         if (initialFile != null) {
             //var fileUri = initialFile.toString();
@@ -518,6 +531,20 @@ public class PlaybinPlayer implements Player {
     }
 
     public Optional<Duration> getCurrentPosition() {
+        // While PLAYING, `this.position` is only refreshed on discrete events (seek, pause, EOS)
+        // since the positionPublisher was removed. Extrapolate from the wall-clock anchor so
+        // on-demand consumers (e.g. MPRIS Position queries) get a live value.
+        if (this.playerStates == PLAYING) {
+            long anchor = this.positionAnchorAtMillis;
+            if (anchor > 0) {
+                long posMs = Math.max(0L, System.currentTimeMillis() - anchor);
+                var dur = this.duration;
+                if (dur != null && posMs > dur.toMillis()) {
+                    posMs = dur.toMillis();
+                }
+                return Optional.of(Duration.ofMillis(posMs));
+            }
+        }
         return Optional.ofNullable(this.position);
     }
 

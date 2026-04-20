@@ -1,5 +1,6 @@
 package org.subsound.ui.components;
 
+import org.gnome.glib.GLib;
 import org.gnome.gtk.ActionBar;
 import org.gnome.gtk.Align;
 import org.gnome.gtk.Box;
@@ -20,6 +21,7 @@ import org.subsound.sound.PlaybinPlayer;
 import org.subsound.utils.Utils;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -71,6 +73,16 @@ public class PlayerBar extends Box implements AppManager.StateListener {
     private Optional<CoverArt> currentCoverArt = Optional.empty();
     private final AtomicLong updateCounter = new AtomicLong();
 
+    // Fields read by the GTK tick callback to self-draw scrubber progress between
+    // AppState updates. Written from onStateChanged (main thread via runOnMainThread).
+    private volatile Duration scrubberDuration = Duration.ZERO;
+    private volatile Optional<Instant> positionAnchorAt = Optional.empty();
+    private volatile Duration scrubberPosition = Duration.ZERO;
+    private volatile boolean scrubberPlaying = false;
+    // Set to true while the GLib timeout driving redraws should keep running. Flipped off in
+    // onUnmap so the next callback invocation returns SOURCE_REMOVE and GLib frees the source.
+    private final AtomicBoolean tickActive = new AtomicBoolean(false);
+
     enum PlayingState {
         IDLE,
         PLAYING,
@@ -81,8 +93,25 @@ public class PlayerBar extends Box implements AppManager.StateListener {
     public PlayerBar(AppManager appManager) {
         super(Orientation.VERTICAL, 2);
         this.appManager = appManager;
-        this.onMap(() -> this.appManager.addOnStateChanged(this));
-        this.onUnmap(() -> this.appManager.removeOnStateChanged(this));
+        this.onMap(() -> {
+            this.appManager.addOnStateChanged(this);
+            if (this.tickActive.compareAndSet(false, true)) {
+                // 100 ms is cheap and gives visibly smooth progress for the millisecond-precision
+                // scrubber paintable, while keeping us well below per-frame refresh rates. GLib
+                // manages the source; it's freed when the callback returns SOURCE_REMOVE.
+                GLib.timeoutAdd(GLib.PRIORITY_DEFAULT, 300, () -> {
+                    if (!this.tickActive.get()) {
+                        return GLib.SOURCE_REMOVE;
+                    }
+                    this.onTick();
+                    return GLib.SOURCE_CONTINUE;
+                });
+            }
+        });
+        this.onUnmap(() -> {
+            this.appManager.removeOnStateChanged(this);
+            this.tickActive.set(false);
+        });
         this.currentState = new AtomicReference<>(this.appManager.getState());
 
         this.starButton = new StarButton(
@@ -356,8 +385,29 @@ public class PlayerBar extends Box implements AppManager.StateListener {
                 // READY: get the position from the loaded source:
                 case READY -> state.player().source().flatMap(s -> s.position()).orElse(Duration.ZERO);
             };
-            this.playerScrubber.updateDuration(duration.orElse(Duration.ZERO));
-            this.playerScrubber.updatePosition(position);
+            Duration effectiveDuration = duration.orElse(Duration.ZERO);
+            this.playerScrubber.updateDuration(effectiveDuration);
+
+            // Cache state for the tick callback. While PLAYING the tick extrapolates position
+            // locally from positionAnchorAt, so we avoid pushing every position update through
+            // the scrubber here. For non-PLAYING states (LOADING/PAUSED/READY/EOS) the tick is
+            // inactive and we snap the scrubber to the authoritative position once.
+            this.scrubberDuration = effectiveDuration;
+            this.scrubberPosition = position;
+            this.positionAnchorAt = state.player().positionAnchorAt();
+            boolean wasPlaying = this.scrubberPlaying;
+            boolean isPlayingNow = nextPlayingState == PlayingState.PLAYING;
+            this.scrubberPlaying = isPlayingNow;
+            if (!isPlayingNow) {
+                // On PLAYING → non-PLAYING the last extrapolated tick may be a few ms ahead of
+                // the real pause point; snap the scrubber back to the authoritative position.
+                // Also covers LOADING/EOS where we want a definite frame.
+                this.playerScrubber.updatePosition(position);
+            } else if (!wasPlaying) {
+                // non-PLAYING → PLAYING: seed the scrubber at `position` immediately; the tick
+                // takes over from the next frame.
+                this.playerScrubber.updatePosition(position);
+            }
 
             Optional<SongInfo> prevSongInfo = prevState.nowPlaying().map(NowPlaying::song);
             var prevSongTitle = prevSongInfo.map(SongInfo::title).orElse("");
@@ -404,6 +454,26 @@ public class PlayerBar extends Box implements AppManager.StateListener {
             isStateChanging.set(false);
             currentState.set(state);
         }
+    }
+
+    private void onTick() {
+        if (!this.scrubberPlaying) {
+            return;
+        }
+        var anchor = this.positionAnchorAt;
+        if (anchor.isEmpty()) {
+            return;
+        }
+        Duration duration = this.scrubberDuration;
+        Duration pos = Duration.between(anchor.get(), Instant.now());
+        if (pos.isNegative()) {
+            pos = Duration.ZERO;
+        }
+        if (!duration.isZero() && pos.compareTo(duration) > 0) {
+            pos = duration;
+        }
+        // Runs on GTK main thread, so updatePosition's runOnMainThread is a no-op hop.
+        this.playerScrubber.updatePosition(pos);
     }
 
     private void updatePlayMode(PlayerAction.PlayMode playMode) {

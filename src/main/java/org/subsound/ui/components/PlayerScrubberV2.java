@@ -31,8 +31,12 @@ public class PlayerScrubberV2 extends Box {
     private final Consumer<Duration> onPositionChanged;
 
     private Duration endTime = Duration.ZERO;
-    private Duration currentPosition = Duration.ZERO;
     private double endTimeSecs = 0.0;
+    // Last values actually pushed to the paintable / label. Kept separate so the paintable can
+    // update at millisecond precision for smooth progress while the label only repaints when the
+    // displayed whole-second changes.
+    private long lastPaintedMs = -1L;
+    private long lastLabelSec = -1L;
 
     private final AtomicBoolean isDragging = new AtomicBoolean(false);
     private volatile double pictureWidthDrag;
@@ -117,20 +121,36 @@ public class PlayerScrubberV2 extends Box {
     }
 
     public void updatePosition(Duration currentTime) {
-        currentTime = Duration.ofSeconds(currentTime.toSeconds());
-        if (currentPosition.equals(currentTime)) {
-            return;
-        }
         if (isDragging.get()) {
             return;
         }
-        currentPosition = currentTime;
-        var text = Utils.formatDurationShortest(currentTime);
-        double normalized = endTimeSecs > 0 ? (double) currentTime.toSeconds() / endTimeSecs : 0.0;
-        double pos = normalized;
+        long millis = currentTime.toMillis();
+        if (millis < 0) {
+            millis = 0;
+        }
+        long seconds = millis / 1000L;
+        boolean paintChanged = millis != lastPaintedMs;
+        boolean labelChanged = seconds != lastLabelSec;
+        if (!paintChanged && !labelChanged) {
+            return;
+        }
+        if (paintChanged) {
+            lastPaintedMs = millis;
+        }
+        if (labelChanged) {
+            lastLabelSec = seconds;
+        }
+        // Paintable gets millisecond-granular progress (smooth bar movement); label only repaints
+        // on whole-second boundaries to avoid flickering text.
+        double normalized = endTimeSecs > 0 ? (millis / 1000.0) / endTimeSecs : 0.0;
+        String text = labelChanged ? Utils.formatDurationShortest(Duration.ofSeconds(seconds)) : null;
         Utils.runOnMainThread(() -> {
-            paintable.setPosition(pos);
-            currentTimeLabel.setLabel(text);
+            if (paintChanged) {
+                paintable.setPosition(normalized);
+            }
+            if (text != null) {
+                currentTimeLabel.setLabel(text);
+            }
         });
     }
 
@@ -138,6 +158,8 @@ public class PlayerScrubberV2 extends Box {
         if (totalTime.isZero()) {
             endTime = totalTime;
             endTimeSecs = 0.0;
+            lastPaintedMs = -1L;
+            lastLabelSec = -1L;
             Utils.runOnMainThread(() -> {
                 currentTimeLabel.setLabel(LABEL_ZERO);
                 endTimeLabel.setLabel(LABEL_ZERO);
@@ -153,6 +175,10 @@ public class PlayerScrubberV2 extends Box {
         }
         endTime = totalTime;
         endTimeSecs = totalTime.toSeconds();
+        // Duration grew/shrank so the previous normalized position is stale — force next
+        // updatePosition call to repaint.
+        lastPaintedMs = -1L;
+        lastLabelSec = -1L;
         var endTimeText = Utils.formatDurationShortest(totalTime);
         Utils.runOnMainThread(() -> {
             endTimeLabel.setLabel(endTimeText);
