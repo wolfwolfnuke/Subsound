@@ -120,6 +120,8 @@ public class PlayerScrubberV2 extends Box {
         return Math.max(min, Math.min(max, value));
     }
 
+    // Caller must be on the GTK main thread — this method writes GTK widgets directly to avoid
+    // an unnecessary GLib.idleAdd hop on the hot (tick) path.
     public void updatePosition(Duration currentTime) {
         if (isDragging.get()) {
             return;
@@ -136,22 +138,15 @@ public class PlayerScrubberV2 extends Box {
         }
         if (paintChanged) {
             lastPaintedMs = millis;
+            // Paintable gets millisecond-granular progress for smooth bar movement.
+            double normalized = endTimeSecs > 0 ? (millis / 1000.0) / endTimeSecs : 0.0;
+            paintable.setPosition(normalized);
         }
         if (labelChanged) {
             lastLabelSec = seconds;
+            // Label only repaints on whole-second boundaries to avoid flickering text.
+            currentTimeLabel.setLabel(Utils.formatDurationShortest(Duration.ofSeconds(seconds)));
         }
-        // Paintable gets millisecond-granular progress (smooth bar movement); label only repaints
-        // on whole-second boundaries to avoid flickering text.
-        double normalized = endTimeSecs > 0 ? (millis / 1000.0) / endTimeSecs : 0.0;
-        String text = labelChanged ? Utils.formatDurationShortest(Duration.ofSeconds(seconds)) : null;
-        Utils.runOnMainThread(() -> {
-            if (paintChanged) {
-                paintable.setPosition(normalized);
-            }
-            if (text != null) {
-                currentTimeLabel.setLabel(text);
-            }
-        });
     }
 
     public void updateDuration(Duration totalTime) {

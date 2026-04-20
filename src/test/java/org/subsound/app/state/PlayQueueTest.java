@@ -142,6 +142,7 @@ public class PlayQueueTest {
                 1.0,
                 false,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.of(new Source(song.downloadUri(), Optional.of(Duration.ofSeconds(5)), Optional.of(song.duration())))
         );
 
@@ -165,6 +166,7 @@ public class PlayQueueTest {
                 PlayerStates.PLAYING,
                 1.0,
                 false,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.of(new Source(
                         songs.get(1).downloadUri(),
@@ -192,6 +194,7 @@ public class PlayQueueTest {
                 PlayerStates.END_OF_STREAM,
                 1.0,
                 false,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty()
         );
@@ -335,7 +338,7 @@ public class PlayQueueTest {
 
         // Queue: [song0, song2], position adjusted to 0
         // End of stream should advance to the next song (song2)
-        playQueue.onState(new PlayerState(PlayerStates.END_OF_STREAM, 1.0, false, Optional.empty(), Optional.empty()));
+        playQueue.onState(new PlayerState(PlayerStates.END_OF_STREAM, 1.0, false, Optional.empty(), Optional.empty(), Optional.empty()));
         assertThat(playQueue.getState().position()).hasValue(1);
         assertThat(playRecorder.songs).containsExactly(songs.get(2));
     }
@@ -382,7 +385,7 @@ public class PlayQueueTest {
     }
 
     private static class StubPlayer implements Player {
-        PlayerState currentState = new PlayerState(PlayerStates.INIT, 1.0, false, Optional.empty(), Optional.empty());
+        PlayerState currentState = new PlayerState(PlayerStates.INIT, 1.0, false, Optional.empty(), Optional.empty(), Optional.empty());
         Duration seekedTo;
 
         @Override

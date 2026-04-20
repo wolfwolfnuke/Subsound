@@ -398,15 +398,18 @@ public class PlayerBar extends Box implements AppManager.StateListener {
             boolean wasPlaying = this.scrubberPlaying;
             boolean isPlayingNow = nextPlayingState == PlayingState.PLAYING;
             this.scrubberPlaying = isPlayingNow;
+            // onStateChanged runs on an AppManager listener virtual thread, so GTK writes via
+            // updatePosition must be marshalled onto the main thread here. (onTick runs on the
+            // main thread already and calls updatePosition directly.)
             if (!isPlayingNow) {
                 // On PLAYING → non-PLAYING the last extrapolated tick may be a few ms ahead of
                 // the real pause point; snap the scrubber back to the authoritative position.
                 // Also covers LOADING/EOS where we want a definite frame.
-                this.playerScrubber.updatePosition(position);
+                runOnMainThread(() -> this.playerScrubber.updatePosition(position));
             } else if (!wasPlaying) {
                 // non-PLAYING → PLAYING: seed the scrubber at `position` immediately; the tick
                 // takes over from the next frame.
-                this.playerScrubber.updatePosition(position);
+                runOnMainThread(() -> this.playerScrubber.updatePosition(position));
             }
 
             Optional<SongInfo> prevSongInfo = prevState.nowPlaying().map(NowPlaying::song);
