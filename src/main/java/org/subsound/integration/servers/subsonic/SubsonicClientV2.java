@@ -14,6 +14,7 @@ import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.ObjectIdentifier.AlbumIdentifier;
 import org.subsound.integration.ServerClient.ObjectIdentifier.ArtistIdentifier;
 import org.subsound.integration.ServerClient.ObjectIdentifier.PlaylistIdentifier;
+import org.subsound.utils.Lazy;
 import org.subsound.utils.Utils;
 import org.subsound.utils.javahttp.TextUtils;
 
@@ -70,6 +71,7 @@ public class SubsonicClientV2 implements ServerClient {
     private final int streamBitRate;    // 0 = source
     private final OkHttpClient httpClient;
     private final OkHttpClient streamingHttpClient;
+    private final Lazy<OpenSubsonicExtensions> supportedExtensions;
 
     public SubsonicClientV2(ServerConfig cfg) {
         this.serverId = cfg.id();
@@ -77,6 +79,7 @@ public class SubsonicClientV2 implements ServerClient {
         this.serverUri = URI.create(cfg.url());
         this.username = cfg.username();
         this.password = cfg.password();
+        this.supportedExtensions = Lazy.of(() -> this.getOpenSubsonicExtensions());
 
         var httpBuilder = new OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
