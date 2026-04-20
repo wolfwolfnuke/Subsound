@@ -667,8 +667,10 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 this.searchQuery = "";
                 this.searchFilter.changed(FilterChange.DIFFERENT);
             }
-            this.listModel.removeAll();
-            this.listModel.splice(0, 0, items);
+            // Single pipeline pass: removeAll() + splice(0, 0, items) used to double-walk the
+            // FilterListModel → SortListModel → ColumnView chain. splice(0, N, items) collapses
+            // the teardown and repopulate into one items-changed event.
+            this.listModel.splice(0, this.listModel.getNItems(), items);
             // Subscribe to GPlaylist metadata changes for the current playlist
             if (this.playlistNotifySignal != null) {
                 this.playlistNotifySignal.disconnect();
