@@ -710,46 +710,56 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var playingItemId = state.queue().playingItemId();
         var playingState = next.nowPlayingState();
 
-        if (!prevSongId.equals(nextSongId) || nextPos != prevPos) {
-            var from = this.listeners.get(prevSongId);
-            if (from != null) {
-                for (var l : from) {
-                    l.updateCellIsPlaying(false, NowPlayingState.NONE);
-                }
-            }
-            var to = this.listeners.get(nextSongId);
-            if (to != null) {
-                for (var l : to) {
-                    var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
-                    boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
-                    l.updateCellIsPlaying(isPlaying, playingState);
-                }
-            }
-            var from1 = this.listenersTitle.get(prevSongId);
-            if (from1 != null) {
-                for (var l : from1) {
-                    l.updateRow(false);
-                }
-            }
-            var to1 = this.listenersTitle.get(nextSongId);
-            if (to1 != null) {
-                for (var l : to1) {
-                    var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
-                    boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
-                    l.updateRow(isPlaying);
-                }
-            }
+        // onStateChanged runs on an AppManager virtual thread. Marshal the whole cell fan-out
+        // onto the main thread in a single idle hop rather than once per cell (which would be
+        // ~2–4 idleAdds per visible row per state change).
+        boolean songOrPosChanged = !prevSongId.equals(nextSongId) || nextPos != prevPos;
+        boolean stateChanged = prev.nowPlayingState() != next.nowPlayingState();
+        if (!songOrPosChanged && !stateChanged) {
+            return;
         }
-        if (prev.nowPlayingState() != next.nowPlayingState()) {
-            var to = this.listeners.get(nextSongId);
-            if (to != null) {
-                for (var l : to) {
-                    var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
-                    boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
-                    l.updateCellIsPlaying(isPlaying, playingState);
+        Utils.runOnMainThread(() -> {
+            if (songOrPosChanged) {
+                var from = this.listeners.get(prevSongId);
+                if (from != null) {
+                    for (var l : from) {
+                        l.updateCellIsPlaying(false, NowPlayingState.NONE);
+                    }
+                }
+                var to = this.listeners.get(nextSongId);
+                if (to != null) {
+                    for (var l : to) {
+                        var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
+                        boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
+                        l.updateCellIsPlaying(isPlaying, playingState);
+                    }
+                }
+                var from1 = this.listenersTitle.get(prevSongId);
+                if (from1 != null) {
+                    for (var l : from1) {
+                        l.updateRow(false);
+                    }
+                }
+                var to1 = this.listenersTitle.get(nextSongId);
+                if (to1 != null) {
+                    for (var l : to1) {
+                        var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
+                        boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
+                        l.updateRow(isPlaying);
+                    }
                 }
             }
-        }
+            if (stateChanged) {
+                var to = this.listeners.get(nextSongId);
+                if (to != null) {
+                    for (var l : to) {
+                        var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
+                        boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
+                        l.updateCellIsPlaying(isPlaying, playingState);
+                    }
+                }
+            }
+        });
     }
 
     private boolean isPlayingEntry(String entryQueueId, Optional<String> playingItemId, String nextSongId) {
@@ -1158,11 +1168,9 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.playingSignal = this.gSong.onIsPlayingChanged((v) -> {
 
             });
+            // GTK notify:: fires on the main thread; no idle hop needed.
             this.positionSignal = listItem.onNotify(
-                    "position", _ -> {
-                        int pos = listItem.getPosition();
-                        Utils.runOnMainThread(() -> this.trackNumberLabel.setLabel("%d".formatted(pos + 1)));
-                    }
+                    "position", _ -> this.trackNumberLabel.setLabel("%d".formatted(listItem.getPosition() + 1))
             );
             String songId = entry.gSong().getSongInfo().id();
             boolean isPlaying = isPlayingEntry(entry.getQueueItemId(), playingItemId, songId);
@@ -1190,24 +1198,24 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
         }
 
+        // Caller must be on the GTK main thread. onStateChanged's virtual-thread call sites are
+        // wrapped once at the outer fan-out; bind runs on the main thread already.
         public void updateCellIsPlaying(boolean isPlayingNow, NowPlayingState playingState) {
             this.playingState = playingState;
             this.isCurrentlyPlaying = isPlayingNow;
-            Utils.runOnMainThread(() -> {
-                var isPlaying = this.isCurrentlyPlaying;
-                switch (this.playingState) {
-                    case LOADING, PAUSED, PLAYING -> {
-                        this.trackNumberLabel.setVisible(!isPlaying);
-                        this.playingIcon.setVisible(isPlaying);
-                        this.playingIcon.setPlayingState(isPlaying ? this.playingState : NowPlayingState.NONE);
-                    }
-                    case NONE -> {
-                        this.trackNumberLabel.setVisible(true);
-                        this.playingIcon.setVisible(false);
-                        this.playingIcon.setPlayingState(isPlaying ? this.playingState : NowPlayingState.NONE);
-                    }
+            var isPlaying = this.isCurrentlyPlaying;
+            switch (this.playingState) {
+                case LOADING, PAUSED, PLAYING -> {
+                    this.trackNumberLabel.setVisible(!isPlaying);
+                    this.playingIcon.setVisible(isPlaying);
+                    this.playingIcon.setPlayingState(isPlaying ? this.playingState : NowPlayingState.NONE);
                 }
-            });
+                case NONE -> {
+                    this.trackNumberLabel.setVisible(true);
+                    this.playingIcon.setVisible(false);
+                    this.playingIcon.setPlayingState(isPlaying ? this.playingState : NowPlayingState.NONE);
+                }
+            }
         }
     }
 
@@ -1295,18 +1303,17 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.titleLabel.removeCssClass(Classes.colorAccent.className());
         }
 
+        // Caller must be on the GTK main thread (see updateCellIsPlaying's note).
         public void updateRow(boolean positionIsPlaying) {
             if (this.gSong == null) {
                 return;
             }
             this.itemAndPositionIsPlaying = positionIsPlaying;
-            Utils.runOnMainThread(() -> {
-                if (this.itemAndPositionIsPlaying) {
-                    this.titleLabel.addCssClass(Classes.colorAccent.className());
-                } else {
-                    this.titleLabel.removeCssClass(Classes.colorAccent.className());
-                }
-            });
+            if (positionIsPlaying) {
+                this.titleLabel.addCssClass(Classes.colorAccent.className());
+            } else {
+                this.titleLabel.removeCssClass(Classes.colorAccent.className());
+            }
         }
     }
 
