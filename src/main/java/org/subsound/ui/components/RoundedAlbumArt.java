@@ -146,7 +146,7 @@ public class RoundedAlbumArt extends Box {
             if (isLoaded.get() || this.artwork == null) {
                 return;
             }
-            log.info("%s: onMap: id=%s".formatted(this.getClass().getSimpleName(), this.artwork.coverArtId()));
+            //log.info("%s: onMap: id=%s".formatted(this.getClass().getSimpleName(), this.artwork.coverArtId()));
             this.startLoad(this.image).thenAccept(_ -> isLoaded.set(true));
         });
 
@@ -165,16 +165,20 @@ public class RoundedAlbumArt extends Box {
         update(newCoverArt.orElse(null));
     }
 
+    // Caller must be on the GTK main thread — this method writes GTK widgets directly.
     public void update(@Nullable CoverArt newArtwork) {
         var oldArtwork = this.artwork;
-        // Skip if same cover art ID
+        // Identity skip covers the common null→null rebind case without any further work.
+        if (oldArtwork == newArtwork) {
+            return;
+        }
+        // Same-id skip: both non-null and pointing at the same art.
         if (oldArtwork != null && newArtwork != null && oldArtwork.coverArtId().equals(newArtwork.coverArtId())) {
             return;
         }
         this.artwork = newArtwork;
         this.isLoaded.set(false);
-        var tex = getPlaceholderTexture();
-        Utils.runOnMainThread(() -> image.setPaintable(tex));
+        image.setPaintable(getPlaceholderTexture());
         if (newArtwork != null && this.getMapped()) {
             startLoad(this.image).thenAccept(_ -> isLoaded.set(true));
         }
