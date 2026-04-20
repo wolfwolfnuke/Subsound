@@ -623,6 +623,12 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             if (playlist == null) {
                 return null;
             }
+            // Synthetic playlists (Downloaded, Starred) have no server-side representation —
+            // hitting getPlaylist(id) would fail. They are refreshed via their own sources
+            // (DownloadManager / StarredListStore) when underlying data changes.
+            if (playlist.kind() != ServerClient.PlaylistKind.NORMAL) {
+                return null;
+            }
             var newPlaylist = appManager
                     .useClient(cl -> cl.getPlaylist(playlist.id()));
 
@@ -653,6 +659,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         Utils.runOnMainThread(() -> {
             this.titleLabel.setLabel(playlist.name());
             this.menuButton.setVisible(playlist.kind() == ServerClient.PlaylistKind.NORMAL);
+            this.reloadButton.setVisible(playlist.kind() == ServerClient.PlaylistKind.NORMAL);
             if (playlistChanged) {
                 // Reset the search/filter when navigating to a different playlist.
                 this.searchEntry.setText("");
