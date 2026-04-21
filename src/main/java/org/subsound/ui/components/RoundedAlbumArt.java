@@ -178,6 +178,19 @@ public class RoundedAlbumArt extends Box {
         }
         this.artwork = newArtwork;
         this.isLoaded.set(false);
+        // Fast path: if the decoded texture is already in memory, apply it inline
+        // and skip the placeholder reset + async/runOnMainThread hop. Safe because
+        // getIfPresent is non-blocking and we are on the main thread.
+        if (newArtwork != null) {
+            var cached = thumbLoader.getThumbnailCache().getCachedTexture(newArtwork, this.size);
+            if (cached.isPresent()) {
+                image.setPaintable(cached.get().texture());
+                isLoaded.set(true);
+                return;
+            }
+        }
+        // Cold path: show placeholder so a slow load does not leave the previous
+        // song's art visible (network timeouts can be 15+ seconds).
         image.setPaintable(getPlaceholderTexture());
         if (newArtwork != null && this.getMapped()) {
             startLoad(this.image).thenAccept(_ -> isLoaded.set(true));
@@ -197,10 +210,7 @@ public class RoundedAlbumArt extends Box {
                     if (this.artwork != artworkSnapshot) {
                         return;
                     }
-                    Utils.runOnMainThread(() -> {
-                        image.setPaintable(texture);
-                        image.setSizeRequest(size, size);
-                    });
+                    Utils.runOnMainThread(() -> image.setPaintable(texture));
                 })
                 .exceptionally(e -> {
                     log.error("Failed to load album art: id={}", artworkSnapshot.coverArtId(), e);

@@ -72,6 +72,11 @@ public class ThumbnailCache {
             Texture backdropTexture
     ) {}
 
+    public Optional<CachedTexture> getCachedTexture(CoverArt coverArt, int size) {
+        var key = new PixbufCacheKey(coverArt, coverArt.coverArtId(), size);
+        return Optional.ofNullable(pixbufCache.getIfPresent(key));
+    }
+
     public CompletableFuture<CachedTexture> loadPixbuf(CoverArt coverArt, int size) {
         return Utils.doAsync(() -> {
             try {
