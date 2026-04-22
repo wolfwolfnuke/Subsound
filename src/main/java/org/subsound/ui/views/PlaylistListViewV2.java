@@ -87,7 +87,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     private static final Logger log = LoggerFactory.getLogger(PlaylistListViewV2.class);
 
     private final AppManager appManager;
-    private final ColumnView listView;
+    private final ColumnView columnView;
     private final Function<PlayerAction, CompletableFuture<Void>> onAction;
     private final ScrolledWindow scroll;
     private final Label titleLabel;
@@ -180,7 +180,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         this.setVexpand(true);
 
         // 1. Build ColumnView without model (model set after columns + sorter are wired)
-        this.listView = ColumnView.builder()
+        this.columnView = ColumnView.builder()
                 .setShowRowSeparators(false)
                 .setHexpand(true)
                 .setVexpand(true)
@@ -209,7 +209,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         this.filterModel = new FilterListModel<>(this.listModel, this.searchFilter);
 
         // 3. Wire sorting over the filtered model: ColumnView aggregates per-column sorters.
-        this.sortModel = new SortListModel<>(this.filterModel, this.listView.getSorter());
+        this.sortModel = new SortListModel<>(this.filterModel, this.columnView.getSorter());
 
         // Search bar — revealer that slides down above the list. Must be constructed
         // before the key controller since the Ctrl+F handler references these fields.
@@ -238,7 +238,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
 
         // 4. Selection wraps sort model
         this.selectionModel = new SingleSelection<>(this.sortModel);
-        this.listView.setModel(this.selectionModel);
+        this.columnView.setModel(this.selectionModel);
 
 
         // 5. Build columns with per-column factories and sorters, then append them
@@ -288,7 +288,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var nowPlayingCol = new ColumnViewColumn("#", nowPlayingFactory);
         nowPlayingCol.setFixedWidth(60);
         nowPlayingCol.setSorter(orderSorter);
-        this.listView.appendColumn(nowPlayingCol);
+        this.columnView.appendColumn(nowPlayingCol);
 
         // --- Album art column (60px, no sorter) ---
         // Uses RoundedAlbumArtV2 directly as the ListItem child — no Box/Clamp/click/hover
@@ -314,7 +314,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         });
         var artCol = new ColumnViewColumn("", artFactory);
         artCol.setFixedWidth(60);
-        this.listView.appendColumn(artCol);
+        this.columnView.appendColumn(artCol);
 
         // --- Title column (expand, sortable by title) ---
         var titleFactory = new SignalListItemFactory();
@@ -360,7 +360,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var titleCol = new ColumnViewColumn("Title", titleFactory);
         titleCol.setExpand(true);
         titleCol.setSorter(titleSorter);
-        this.listView.appendColumn(titleCol);
+        this.columnView.appendColumn(titleCol);
 
         // --- Album column (200px, sortable by album) ---
         var albumFactory = new SignalListItemFactory();
@@ -401,7 +401,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var albumCol = new ColumnViewColumn("Album", albumFactory);
         albumCol.setFixedWidth(200);
         albumCol.setSorter(albumSorter);
-        this.listView.appendColumn(albumCol);
+        this.columnView.appendColumn(albumCol);
 
         // --- Duration column (80px, sortable by duration millis) ---
         var durationFactory = new SignalListItemFactory();
@@ -432,7 +432,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var durationCol = new ColumnViewColumn("Duration", durationFactory);
         durationCol.setFixedWidth(80);
         durationCol.setSorter(durationSorter);
-        this.listView.appendColumn(durationCol);
+        this.columnView.appendColumn(durationCol);
 
         // --- Actions column (star + menu button, sortable by starred presence) ---
         var starFactory = new SignalListItemFactory();
@@ -471,12 +471,12 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var starCol = new ColumnViewColumn("★", starFactory);
         starCol.setFixedWidth(120);
         starCol.setSorter(starSorter);
-        this.listView.appendColumn(starCol);
+        this.columnView.appendColumn(starCol);
 
         // Activate: play in sorted order so next/prev respect current sort.
         // Assign a UUID to every entry in the current sorted view so highlighting
         // survives re-sort and shuffle.
-        var activateSignal = this.listView.onActivate(index -> {
+        var activateSignal = this.columnView.onActivate(index -> {
             var playlist = this.currentPlaylist.get();
             if (playlist == null) {
                 return;
@@ -537,7 +537,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
             return false;
         });
-        this.listView.addController(keyController);
+        this.columnView.addController(keyController);
 
         var mapSignal = this.onMap(() -> {
             appManager.addOnStateChanged(this);
@@ -573,7 +573,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 .setPropagateNaturalWidth(true)
                 .setPropagateNaturalHeight(true)
                 .build();
-        this.scroll.setChild(this.listView);
+        this.scroll.setChild(this.columnView);
 
         this.titleLabel = new Label();
         this.titleLabel.setLabel("");
