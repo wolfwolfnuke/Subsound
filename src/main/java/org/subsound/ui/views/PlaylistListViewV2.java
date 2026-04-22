@@ -53,7 +53,7 @@ import org.subsound.ui.components.ClickLabel;
 import org.subsound.ui.components.Icons;
 import org.subsound.ui.components.ListItemPlayingIcon;
 import org.subsound.ui.components.NowPlayingOverlayIcon.NowPlayingState;
-import org.subsound.ui.components.RoundedAlbumArt;
+import org.subsound.ui.components.RoundedAlbumArtV2;
 import org.subsound.ui.components.SongDownloadStatusIcon;
 import org.subsound.ui.components.StarButton;
 import org.subsound.ui.models.GSongInfo;
@@ -240,6 +240,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         this.selectionModel = new SingleSelection<>(this.sortModel);
         this.listView.setModel(this.selectionModel);
 
+
         // 5. Build columns with per-column factories and sorters, then append them
 
         // --- Now-playing / track-number column (60px, sortable by original position) ---
@@ -289,11 +290,13 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         nowPlayingCol.setSorter(orderSorter);
         this.listView.appendColumn(nowPlayingCol);
 
-        // --- Album art column (44px, no sorter) ---
+        // --- Album art column (60px, no sorter) ---
+        // Uses RoundedAlbumArtV2 directly as the ListItem child — no Box/Clamp/click/hover
+        // wrapper. Row activation is handled by ColumnView itself.
         var artFactory = new SignalListItemFactory();
         artFactory.onSetup(obj -> {
             var listItem = (ListItem) obj;
-            listItem.setChild(new AlbumArtCell(appManager));
+            listItem.setChild(new RoundedAlbumArtV2(appManager, 48));
         });
         artFactory.onBind(obj -> {
             var listItem = (ListItem) obj;
@@ -301,9 +304,8 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             if (entry == null) {
                 return;
             }
-            var child = listItem.getChild();
-            if (child instanceof AlbumArtCell cell) {
-                cell.bind(entry.gSong());
+            if (listItem.getChild() instanceof RoundedAlbumArtV2 art) {
+                art.update(entry.song().coverArt().orElse(null));
             }
         });
         artFactory.onTeardown(obj -> {
@@ -645,18 +647,22 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     }
 
     public void setSongs(List<GSongInfo> songs, ServerClient.PlaylistSimple playlist) {
+        long tStart = System.nanoTime();
         var prev = this.currentPlaylist.get();
         boolean playlistChanged = prev == null || !prev.id().equals(playlist.id());
         this.currentPlaylist.set(playlist);
         this.lastKnownSongCount = playlist.songCount();
         this.reloadNeeded = false;
         var playlistId = playlist.id();
-        var items = new GPlaylistEntry[songs.size()];
-        for (int i = 0; i < songs.size(); i++) {
+        int n = songs.size();
+        var items = new GPlaylistEntry[n];
+        for (int i = 0; i < n; i++) {
             var song = songs.get(i);
             items[i] = GPlaylistEntry.of(playlistId, song, i);
         }
+        long tAfterAlloc = System.nanoTime();
         Utils.runOnMainThread(() -> {
+            long tMainStart = System.nanoTime();
             this.titleLabel.setLabel(playlist.name());
             this.menuButton.setVisible(playlist.kind() == ServerClient.PlaylistKind.NORMAL);
             this.reloadButton.setVisible(playlist.kind() == ServerClient.PlaylistKind.NORMAL);
@@ -667,10 +673,21 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 this.searchQuery = "";
                 this.searchFilter.changed(FilterChange.DIFFERENT);
             }
+            long tBeforeSplice = System.nanoTime();
             // Single pipeline pass: removeAll() + splice(0, 0, items) used to double-walk the
             // FilterListModel → SortListModel → ColumnView chain. splice(0, N, items) collapses
             // the teardown and repopulate into one items-changed event.
-            this.listModel.splice(0, this.listModel.getNItems(), items);
+            int oldN = this.listModel.getNItems();
+            // EXPERIMENT: detach the sorter during splice to isolate sort cost from the
+            // factory-bind + layout cost. Reattach after so the ColumnView column headers
+            // can still trigger re-sort on click.
+            var savedSorter = this.sortModel.getSorter();
+            this.sortModel.setSorter(null);
+            long tAfterDetach = System.nanoTime();
+            this.listModel.splice(0, oldN, items);
+            long tAfterSplice = System.nanoTime();
+            this.sortModel.setSorter(savedSorter);
+            long tAfterReattach = System.nanoTime();
             // Subscribe to GPlaylist metadata changes for the current playlist
             if (this.playlistNotifySignal != null) {
                 this.playlistNotifySignal.disconnect();
@@ -691,6 +708,21 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                     }
                 }
             }
+            long tMainEnd = System.nanoTime();
+            log.info(
+                    "setSongs: n={} alloc={}ms mainEnter={}ms header={}ms detachSorter={}ms splice(old={})={}ms reattachSorter={}ms playlistScan={}ms total(main)={}ms total(all)={}ms",
+                    n,
+                    (tAfterAlloc - tStart) / 1_000_000,
+                    (tMainStart - tAfterAlloc) / 1_000_000,
+                    (tBeforeSplice - tMainStart) / 1_000_000,
+                    (tAfterDetach - tBeforeSplice) / 1_000_000,
+                    oldN,
+                    (tAfterSplice - tAfterDetach) / 1_000_000,
+                    (tAfterReattach - tAfterSplice) / 1_000_000,
+                    (tMainEnd - tAfterReattach) / 1_000_000,
+                    (tMainEnd - tMainStart) / 1_000_000,
+                    (tMainEnd - tStart) / 1_000_000
+            );
         });
     }
 
@@ -1130,7 +1162,6 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         private GSongInfo gSong;
         private volatile NowPlayingState playingState = NowPlayingState.NONE;
         private SignalConnection<NotifyCallback> positionSignal;
-        private SignalConnection<NotifyCallback> playingSignal;
         private boolean isCurrentlyPlaying;
         @Nullable volatile GPlaylistEntry boundEntry;
 
@@ -1165,9 +1196,6 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.gSong = entry.gSong();
             this.listItem = listItem;
             this.trackNumberLabel.setLabel("%d".formatted(listItem.getPosition() + 1));
-            this.playingSignal = this.gSong.onIsPlayingChanged((v) -> {
-
-            });
             // GTK notify:: fires on the main thread; no idle hop needed.
             this.positionSignal = listItem.onNotify(
                     "position", _ -> this.trackNumberLabel.setLabel("%d".formatted(listItem.getPosition() + 1))
@@ -1191,10 +1219,6 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             var sig = positionSignal;
             if (sig != null) {
                 sig.disconnect();
-            }
-            var sig2 = this.playingSignal;
-            if (sig2 != null) {
-                sig2.disconnect();
             }
         }
 
@@ -1226,7 +1250,6 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         private GSongInfo gSong;
         private volatile NowPlayingState playingState = NowPlayingState.NONE;
         private ListItem listItem;
-        private SignalConnection<NotifyCallback> positionSignal;
         private boolean itemAndPositionIsPlaying;
         @Nullable volatile GPlaylistEntry boundEntry;
 
@@ -1276,9 +1299,6 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.gSong = entry.gSong();
             this.listItem = listItem;
             this.boundEntry = entry;
-            this.positionSignal = listItem.onNotify("position", (a) -> {
-                // position changed; no action needed for title cell
-            });
             var info = entry.gSong().getSongInfo();
             this.titleLabel.setLabel(info.title());
             this.artistLabel.setLabel(info.artist() != null ? info.artist() : "");
@@ -1297,9 +1317,6 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.gSong = null;
             this.listItem = null;
             this.boundEntry = null;
-            if (this.positionSignal != null) {
-                this.positionSignal.disconnect();
-            }
             this.titleLabel.removeCssClass(Classes.colorAccent.className());
         }
 
@@ -1473,23 +1490,6 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.boundEntry = null;
             this.listItem = null;
             this.gSong = null;
-        }
-    }
-
-    private static class AlbumArtCell extends Box {
-        private static final int ART_SIZE = 48;
-        private final RoundedAlbumArt albumArt;
-
-        AlbumArtCell(AppManager appManager) {
-            super(HORIZONTAL, 0);
-            this.setHalign(CENTER);
-            this.setValign(CENTER);
-            this.albumArt = new RoundedAlbumArt(Optional.empty(), appManager, ART_SIZE);
-            this.append(albumArt);
-        }
-
-        void bind(GSongInfo gSong) {
-            this.albumArt.update(gSong.getSongInfo().coverArt());
         }
     }
 

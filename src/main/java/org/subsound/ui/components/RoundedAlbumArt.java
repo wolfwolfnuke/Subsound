@@ -48,7 +48,7 @@ public class RoundedAlbumArt extends Box {
 
     private final static Map<Boolean, Texture> placeHolderCache = new ConcurrentHashMap<>();
 
-    private static Texture getPlaceholderTexture() {
+    static Texture getPlaceholderTexture() {
         return placeHolderCache.computeIfAbsent(true, (key) -> {
             // 1×1 dark grey pixel — Picture scales it to fill with ContentFit.COVER
             var pixbuf = new Pixbuf(org.gnome.gdkpixbuf.Colorspace.RGB, true, 8, 1, 1);
@@ -166,6 +166,8 @@ public class RoundedAlbumArt extends Box {
     }
 
     // Caller must be on the GTK main thread — this method writes GTK widgets directly.
+    // Observed callers: ColumnView/ListView factory bind paths (main thread) and PlayerBar's
+    // replaceAlbumArt/placeholderCover (already wrapped in runOnMainThread).
     public void update(@Nullable CoverArt newArtwork) {
         var oldArtwork = this.artwork;
         // Identity skip covers the common null→null rebind case without any further work.

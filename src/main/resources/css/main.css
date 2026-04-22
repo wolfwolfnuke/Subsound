@@ -51,6 +51,16 @@
     border-radius: 4px;
 }
 
+#RoundedAlbumArtV2 {
+    border-radius: 4px;
+    transition: filter 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+#RoundedAlbumArtV2:hover {
+    /*filter: brightness(1.15);*/
+    /*box-shadow: inset 0 0 8px 1px rgba(255, 255, 255, 0.35);*/
+}
+
 scale slider {
     min-width: 20px;
     min-height: 20px;
