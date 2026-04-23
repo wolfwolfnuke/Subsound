@@ -1,10 +1,10 @@
 package org.subsound.integration.servers.subsonic;
 
 import com.google.gson.annotations.SerializedName;
+import okhttp3.FormBody;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
-import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +47,7 @@ import java.util.stream.Collectors;
 
 import static java.util.Optional.ofNullable;
 import static org.subsound.app.state.AppManager.SERVER_ID;
+import static org.subsound.integration.servers.subsonic.SubsonicClientV2.OpenSubsonicExtensions.OpenSubsonicFeature.FormPost;
 import static org.subsound.persistence.ThumbnailCache.toCachePath;
 import static org.subsound.utils.LogUtils.loggingInterceptor;
 import static org.subsound.utils.LogUtils.userAgentInterceptor;
@@ -57,7 +58,7 @@ import static org.subsound.utils.LogUtils.userAgentInterceptor;
  * Uses OkHttp's callTimeout for proper end-to-end request timeouts.
  */
 public class SubsonicClientV2 implements ServerClient {
-    private static final Logger log = LoggerFactory.getLogger(SubsonicClientV2.class);
+    private final Logger log = LoggerFactory.getLogger(SubsonicClientV2.class);
     private static final String API_VERSION = "1.16.1";
     private static final HexFormat HEX = HexFormat.of().withLowerCase();
     private static final Random RANDOM = new Random();
@@ -71,7 +72,7 @@ public class SubsonicClientV2 implements ServerClient {
     private final int streamBitRate;    // 0 = source
     private final OkHttpClient httpClient;
     private final OkHttpClient streamingHttpClient;
-    private final Lazy<OpenSubsonicExtensions> supportedExtensions;
+    private final Lazy<Optional<OpenSubsonicExtensions>> supportedExtensions;
 
     public SubsonicClientV2(ServerConfig cfg) {
         this.serverId = cfg.id();
@@ -79,7 +80,14 @@ public class SubsonicClientV2 implements ServerClient {
         this.serverUri = URI.create(cfg.url());
         this.username = cfg.username();
         this.password = cfg.password();
-        this.supportedExtensions = Lazy.of(() -> this.getOpenSubsonicExtensions());
+        this.supportedExtensions = Lazy.of(() -> {
+            try {
+                return Optional.of(getOpenSubsonicExtensions());
+            } catch (Exception e) {
+                log.warn("Failed to load supported OpenSubsonic extensions", e);
+                return Optional.empty();
+            }
+        });
 
         var httpBuilder = new OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
@@ -110,6 +118,15 @@ public class SubsonicClientV2 implements ServerClient {
             case TranscodeBitrate.SourceQuality _ -> 0;
             case TranscodeBitrate.MaximumBitrate(var kbps) -> kbps;
         };
+    }
+
+    public boolean isPostFormSupported() {
+        var extOpt = this.supportedExtensions.get();
+        if (extOpt.isEmpty()) {
+            return false;
+        } else {
+            return extOpt.get().supports(FormPost);
+        }
     }
 
     private static void configureTrustAllCerts(OkHttpClient.Builder builder) {
@@ -209,26 +226,23 @@ public class SubsonicClientV2 implements ServerClient {
             this.body = body;
         }
     }
+
     private <T> T fetchJson(String path, Map<String, String> params, Class<T> responseClass) {
         var url = buildUrl(path, params);
-        var request = new Request.Builder().url(url).get().build();
-        try (Response response = httpClient.newCall(request).execute()) {
-            var body = response.body() != null ? response.body().string() : "";
-            if (!response.isSuccessful()) {
-                throw new HttpException(response.code(), body);
-            }
-            return Utils.fromJson(body, responseClass);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
 
-    private <T> T postJson(String path, Map<String, String> params, Class<T> responseClass) {
-        var url = buildUrl(path, params);
-        var request = new Request.Builder()
-                .url(url)
-                .post(RequestBody.create(new byte[0]))
-                .build();
+        Request request;
+        if (isPostFormSupported()) {
+            var formBuilder = new FormBody.Builder();
+            for (int i = 0; i < url.querySize(); i++) {
+                String name = url.queryParameterName(i);
+                String value = url.queryParameterValue(i);
+                formBuilder.add(name, value != null ? value : "");
+            }
+            url = url.newBuilder().query("").build();
+            request = new Request.Builder().url(url).post(formBuilder.build()).build();
+        } else {
+            request = new Request.Builder().url(url).get().build();
+        }
         try (Response response = httpClient.newCall(request).execute()) {
             var body = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
@@ -241,23 +255,14 @@ public class SubsonicClientV2 implements ServerClient {
     }
 
     private void fetchVoid(String path, Map<String, String> params) {
-        var url = buildUrl(path, params);
-        var request = new Request.Builder().url(url).get().build();
-        try (Response response = httpClient.newCall(request).execute()) {
-            var body = response.body() != null ? response.body().string() : "";
-            if (!response.isSuccessful()) {
-                throw new HttpException(response.code(), body);
-            }
-            var parsed = Utils.fromJson(body, PingResponseJson.class);
-            if (!"ok".equalsIgnoreCase(parsed.subsonicResponse.status)) {
-                throw new RuntimeException("Subsonic error from " + path + ": " + body);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        fetchJson(path, params, PingResponseJson.class);
     }
 
-    private void fetchVoidMulti(String path, Map<String, String> singleParams, Map<String, List<String>> multiParams) {
+    private void fetchVoidMulti(
+            String path,
+            Map<String, String> singleParams,
+            Map<String, List<String>> multiParams
+    ) {
         var url = buildUrlMulti(path, singleParams, multiParams);
         var request = new Request.Builder().url(url).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
@@ -276,12 +281,6 @@ public class SubsonicClientV2 implements ServerClient {
 
     private <T extends HasStatus> T fetchAndCheck(String path, Map<String, String> params, Class<T> responseClass) {
         var parsed = fetchJson(path, params, responseClass);
-        parsed.checkOk(path);
-        return parsed;
-    }
-
-    private <T extends HasStatus> T postAndCheck(String path, Map<String, String> params, Class<T> responseClass) {
-        var parsed = postJson(path, params, responseClass);
         parsed.checkOk(path);
         return parsed;
     }
@@ -936,7 +935,7 @@ public class SubsonicClientV2 implements ServerClient {
 
     @Override
     public PlaylistSimple playlistCreate(PlaylistCreateRequest request) {
-        var res = postAndCheck("/rest/createPlaylist", Map.of("name", request.name()), CreatePlaylistResponseJson.class);
+        var res = fetchAndCheck("/rest/createPlaylist", Map.of("name", request.name()), CreatePlaylistResponseJson.class);
         var pl = res.subsonicResponse.playlist;
         var playlist = toPlaylistSimple(pl);
         if (!request.songIds().isEmpty()) {
@@ -1003,7 +1002,9 @@ public class SubsonicClientV2 implements ServerClient {
     ){
         public boolean supports(OpenSubsonicFeature feature) {
             for (var e : list) {
-                return feature.value().equals(e.name());
+                if (feature.value().equals(e.name())) {
+                    return true;
+                }
             }
             return false;
         }
@@ -1038,14 +1039,23 @@ public class SubsonicClientV2 implements ServerClient {
         @Override public String getStatus() { return subsonicResponse.status; }
     }
 
+    public Response getUnauthed(String path) throws IOException {
+        var url = buildUrl(path, Map.of());
+        var request = new Request.Builder().url(url).get().build();
+        return this.httpClient.newCall(request).execute();
+    }
+
     public OpenSubsonicExtensions getOpenSubsonicExtensions() {
-        try {
-            var res = fetchAndCheck("/rest/getOpenSubsonicExtensions", Map.of(), SubsonicExtensionsResponseJson.class);
+        // needs to be called outside the normal send functions,
+        // as the normal send functions loads features to detect if it can use body-form,
+        // creating a circular call graph and StackOverflowError
+        try (var response = getUnauthed("/rest/getOpenSubsonicExtensions")) {
+            var res = Utils.fromJson(response.body().string(), SubsonicExtensionsResponseJson.class);
             var inner = res.subsonicResponse;
             boolean supported = inner.openSubsonic;
             List<OpenSubsonicExtension> list = inner.openSubsonicExtensions == null ? List.of() : inner.openSubsonicExtensions;
             String str = list.stream().map(OpenSubsonicExtension::name).collect(Collectors.joining(", "));
-            log.info("getOpenSubsonicExtensions: got {}", str);
+            log.info("getOpenSubsonicExtensions: got extensions=[{}]", str);
             return new OpenSubsonicExtensions(supported, list);
         } catch (HttpException e) {
             // assume a 404 means endpoint does not exist so extensions are not supported
@@ -1055,6 +1065,8 @@ public class SubsonicClientV2 implements ServerClient {
             }
             log.warn("getOpenSubsonicExtensions: failed: {}", e.getMessage());
             throw e;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
