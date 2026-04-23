@@ -51,9 +51,13 @@ public class ThumbnailCache {
     private final Cache<PixbufCacheKey, CachedTexture> pixbufCache = Caffeine.newBuilder().maximumSize(1000).recordStats().build();
     private final int maxArtworkSize = 1024;
 
+    // Key must NOT include the CoverArt record: CoverArt carries coverArtLink (URI with
+    // per-request auth tokens) and identifier (differs across album/artist/song contexts),
+    // so two CoverArts for the same artwork are unequal records. Keying on identity alone
+    // lets Caffeine's get(key, mapper) dedupe concurrent loads for the same artwork.
     record PixbufCacheKey(
-            CoverArt coverArt,
-            String id,
+            String serverId,
+            String coverArtId,
             int size
     ) {
     }
@@ -73,18 +77,18 @@ public class ThumbnailCache {
     ) {}
 
     public Optional<CachedTexture> getCachedTexture(CoverArt coverArt, int size) {
-        var key = new PixbufCacheKey(coverArt, coverArt.coverArtId(), size);
+        var key = new PixbufCacheKey(coverArt.serverId(), coverArt.coverArtId(), size);
         return Optional.ofNullable(pixbufCache.getIfPresent(key));
     }
 
     public CompletableFuture<CachedTexture> loadPixbuf(CoverArt coverArt, int size) {
         return Utils.doAsync(() -> {
             try {
-                var key = new PixbufCacheKey(coverArt, coverArt.coverArtId(), size);
+                var key = new PixbufCacheKey(coverArt.serverId(), coverArt.coverArtId(), size);
 
                 var pixbuf = pixbufCache.get(key, k -> {
-                    log.debug("ThumbCache: cache miss: {} size={}", k.coverArt.coverArtId(), k.size);
-                    ThumbLoaded loaded = loadThumbAsync(k.coverArt).join();
+                    log.debug("ThumbCache: cache miss: {} size={}", k.coverArtId(), k.size);
+                    ThumbLoaded loaded = loadThumbAsync(coverArt).join();
                     String path = loaded.path().cachePath().toAbsolutePath().toString();
                     try {
                         // load at twice the requested size, as the texture for some reason looks very bad in some situations
