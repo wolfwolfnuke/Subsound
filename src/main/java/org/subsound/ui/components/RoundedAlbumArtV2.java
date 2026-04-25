@@ -8,17 +8,23 @@ import org.subsound.app.state.AppManager;
 import org.subsound.integration.ServerClient.CoverArt;
 import org.subsound.utils.Utils;
 
+import java.util.Objects;
+
 /**
  * Lightweight list-row variant of {@link RoundedAlbumArt}.
  *
- * Designed for hot ColumnView/ListView binding paths where row activation is already handled
- * by the row itself. Skips click/hover controllers, the outer Box + Clamp wrapper, and the
- * onMap/onDestroy signal plumbing that make V1 expensive to construct hundreds of times.
+ * <p>{@link #update} applies the texture synchronously on cache hit (no deferred dispatch:
+ * the always-deferred version showed no measurable splice win in practice). On cache miss,
+ * the placeholder is set inline and the real texture is loaded asynchronously, with the
+ * final {@code setPaintable} call dispatched onto the main thread once the load completes.
+ * Re-entry while a load is in flight is guarded by {@link #currentArtwork} identity.
  */
 public class RoundedAlbumArtV2 extends Picture {
     private final AppManager thumbLoader;
     private final int size;
-    @Nullable private CoverArt artwork;
+
+    @Nullable private CoverArt currentArtwork;
+    @Nullable private String appliedCoverArtId; // null = placeholder currently shown
 
     public RoundedAlbumArtV2(AppManager thumbLoader, int size) {
         this.thumbLoader = thumbLoader;
@@ -27,37 +33,44 @@ public class RoundedAlbumArtV2 extends Picture {
         setSizeRequest(size, size);
         setOverflow(Overflow.HIDDEN);
         setName("RoundedAlbumArtV2");
-        //addCssClass("rounded");
-        //setPaintable(RoundedAlbumArt.getPlaceholderTexture());
     }
 
     public void update(@Nullable CoverArt newArtwork) {
-        var old = this.artwork;
-        if (old == newArtwork) {
+        var newId = newArtwork != null ? newArtwork.coverArtId() : null;
+        if (Objects.equals(appliedCoverArtId, newId)) {
+            currentArtwork = newArtwork;
             return;
         }
-        if (old != null && newArtwork != null && old.coverArtId().equals(newArtwork.coverArtId())) {
-            return;
-        }
-        this.artwork = newArtwork;
+        currentArtwork = newArtwork;
         if (newArtwork == null) {
             setPaintable(RoundedAlbumArt.getPlaceholderTexture());
+            appliedCoverArtId = null;
             return;
         }
         var cached = thumbLoader.getThumbnailCache().getCachedTexture(newArtwork, this.size);
         if (cached.isPresent()) {
             setPaintable(cached.get().texture());
+            appliedCoverArtId = newId;
             return;
         }
-        // Placeholder on miss so slow loads do not leave the previous row's art visible.
+        // Cache miss: show placeholder so a slow load doesn't leave the previous row's art
+        // visible. The async load applies the real texture once decoded; we still need
+        // runOnMainThread there because the future completes off the GTK thread.
         setPaintable(RoundedAlbumArt.getPlaceholderTexture());
+        appliedCoverArtId = null;
         var snapshot = newArtwork;
         thumbLoader.getThumbnailCache().loadPixbuf(newArtwork, this.size)
                 .thenAccept(stored -> {
-                    if (this.artwork != snapshot) {
+                    if (currentArtwork != snapshot) {
                         return;
                     }
-                    Utils.runOnMainThread(() -> setPaintable(stored.texture()));
+                    Utils.runOnMainThread(() -> {
+                        if (currentArtwork != snapshot) {
+                            return;
+                        }
+                        setPaintable(stored.texture());
+                        appliedCoverArtId = snapshot.coverArtId();
+                    });
                 })
                 .exceptionally(e -> null);
     }
