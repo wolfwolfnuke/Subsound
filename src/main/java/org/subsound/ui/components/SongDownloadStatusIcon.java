@@ -1,19 +1,25 @@
 package org.subsound.ui.components;
 
+import org.gnome.gtk.Inscription;
 import org.subsound.ui.models.GDownloadState;
-import org.gnome.gtk.Image;
 
-public class SongDownloadStatusIcon extends Image {
-    private static final String ICON_DOWNLOADED = Icons.CheckmarkCircle.getIconName();
-    private static final String ICON_PENDING = Icons.PAUSE.getIconName();
-    private static final String ICON_DOWNLOADING = Icons.ContentLoadingSymbolic.getIconName();
+/**
+ * Lightweight download-state indicator. Uses {@link Inscription} (GTK4's high-performance
+ * text-render-only widget) with Unicode glyphs instead of {@code Image} + icon-theme lookups.
+ */
+public class SongDownloadStatusIcon extends Inscription {
+    // consider: U+2713 + U+20DD = ✓⃝
+    private static final String GLYPH_DOWNLOADED = "\u2713\u20DD";   //  ✓⃝
+    private static final String GLYPH_CACHED = "\u2713";   //
+    private static final String GLYPH_PENDING = "\u23F8";      // ⏸
+    private static final String GLYPH_DOWNLOADING = "\uD83D\uDDD8"; // 🗘 (U+1F5D8 surrogate pair)
 
     private volatile GDownloadState currentState;
 
     public SongDownloadStatusIcon() {
         super();
-        this.setFromIconName(ICON_DOWNLOADED);
-        this.setPixelSize(16);
+        // Glyph is set on first updateDownloadState() during bind. Starting invisible
+        // (opacity=0) means no initial setText is needed.
         this.setOpacity(0);
     }
 
@@ -25,23 +31,23 @@ public class SongDownloadStatusIcon extends Image {
         this.removeCssClass(Classes.colorSuccess.className());
         switch (state) {
             case DOWNLOADED -> {
-                this.setFromIconName(ICON_DOWNLOADED);
+                this.setText(GLYPH_DOWNLOADED);
                 this.setTooltipText("Available offline");
                 this.addCssClass(Classes.colorSuccess.className());
                 this.setOpacity(1);
             }
             case CACHED -> {
-                this.setFromIconName(ICON_DOWNLOADED);
+                this.setText(GLYPH_CACHED);
                 this.setTooltipText("Cached - available offline");
                 this.setOpacity(1);
             }
             case PENDING -> {
-                this.setFromIconName(ICON_PENDING);
+                this.setText(GLYPH_PENDING);
                 this.setTooltipText("Download pending");
                 this.setOpacity(1);
             }
             case DOWNLOADING -> {
-                this.setFromIconName(ICON_DOWNLOADING);
+                this.setText(GLYPH_DOWNLOADING);
                 this.setTooltipText("Downloading...");
                 this.setOpacity(1);
             }
