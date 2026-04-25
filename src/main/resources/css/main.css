@@ -86,6 +86,8 @@ scale slider {
     color: white;
     opacity: 1.0;
     text-decoration: underline;
+    text-decoration-color: white;
+    text-decoration-style: solid;
 }
 
 .AlbumSongActionRow {
