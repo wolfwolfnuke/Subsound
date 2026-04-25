@@ -1050,7 +1050,13 @@ public class SubsonicClientV2 implements ServerClient {
         // as the normal send functions loads features to detect if it can use body-form,
         // creating a circular call graph and StackOverflowError
         try (var response = getUnauthed("/rest/getOpenSubsonicExtensions")) {
+            if (response.code() != 200) {
+                return new OpenSubsonicExtensions(false, List.of());
+            }
             var res = Utils.fromJson(response.body().string(), SubsonicExtensionsResponseJson.class);
+            if (!"ok".equals(res.getStatus())) {
+                return new OpenSubsonicExtensions(false, List.of());
+            }
             var inner = res.subsonicResponse;
             boolean supported = inner.openSubsonic;
             List<OpenSubsonicExtension> list = inner.openSubsonicExtensions == null ? List.of() : inner.openSubsonicExtensions;
