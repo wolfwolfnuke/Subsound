@@ -18,8 +18,6 @@ public class ClickLabel extends Label {
         var signal = gestureClick.onReleased((int nPress, double x, double y) -> {
             this.onClick.run();
         });
-        this.onDestroy(() -> {
-            signal.disconnect();
-        });
+        this.onDestroy(signal::disconnect);
     }
 }
