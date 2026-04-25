@@ -55,7 +55,7 @@ import org.subsound.ui.components.ListItemPlayingIcon;
 import org.subsound.ui.components.NowPlayingOverlayIcon.NowPlayingState;
 import org.subsound.ui.components.RoundedAlbumArtV2;
 import org.subsound.ui.components.SongDownloadStatusIcon;
-import org.subsound.ui.components.StarButton;
+import org.subsound.ui.components.StarButtonSimple;
 import org.subsound.ui.models.GSongInfo;
 import org.subsound.utils.Utils;
 
@@ -291,8 +291,8 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         this.columnView.appendColumn(nowPlayingCol);
 
         // --- Album art column (60px, no sorter) ---
-        // Uses RoundedAlbumArtV2 directly as the ListItem child — no Box/Clamp/click/hover
-        // wrapper. Row activation is handled by ColumnView itself.
+        // RoundedAlbumArtV2.update() just records intent; actual setPaintable happens on onMap.
+        // This keeps bind cheap so ColumnView's per-splice factory work stays near the floor.
         var artFactory = new SignalListItemFactory();
         artFactory.onSetup(obj -> {
             var listItem = (ListItem) obj;
@@ -678,16 +678,8 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             // FilterListModel → SortListModel → ColumnView chain. splice(0, N, items) collapses
             // the teardown and repopulate into one items-changed event.
             int oldN = this.listModel.getNItems();
-            // EXPERIMENT: detach the sorter during splice to isolate sort cost from the
-            // factory-bind + layout cost. Reattach after so the ColumnView column headers
-            // can still trigger re-sort on click.
-            var savedSorter = this.sortModel.getSorter();
-            this.sortModel.setSorter(null);
-            long tAfterDetach = System.nanoTime();
             this.listModel.splice(0, oldN, items);
             long tAfterSplice = System.nanoTime();
-            this.sortModel.setSorter(savedSorter);
-            long tAfterReattach = System.nanoTime();
             // Subscribe to GPlaylist metadata changes for the current playlist
             if (this.playlistNotifySignal != null) {
                 this.playlistNotifySignal.disconnect();
@@ -710,16 +702,14 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
             long tMainEnd = System.nanoTime();
             log.info(
-                    "setSongs: n={} alloc={}ms mainEnter={}ms header={}ms detachSorter={}ms splice(old={})={}ms reattachSorter={}ms playlistScan={}ms total(main)={}ms total(all)={}ms",
+                    "setSongs: n={} alloc={}ms mainEnter={}ms header={}ms splice(old={})={}ms playlistScan={}ms total(main)={}ms total(all)={}ms",
                     n,
                     (tAfterAlloc - tStart) / 1_000_000,
                     (tMainStart - tAfterAlloc) / 1_000_000,
                     (tBeforeSplice - tMainStart) / 1_000_000,
-                    (tAfterDetach - tBeforeSplice) / 1_000_000,
                     oldN,
-                    (tAfterSplice - tAfterDetach) / 1_000_000,
-                    (tAfterReattach - tAfterSplice) / 1_000_000,
-                    (tMainEnd - tAfterReattach) / 1_000_000,
+                    (tAfterSplice - tBeforeSplice) / 1_000_000,
+                    (tMainEnd - tAfterSplice) / 1_000_000,
                     (tMainEnd - tMainStart) / 1_000_000,
                     (tMainEnd - tStart) / 1_000_000
             );
@@ -1389,7 +1379,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
 
     private class ActionCell extends Box {
         private final SongDownloadStatusIcon downloadIcon;
-        private final StarButton starButton;
+        private final StarButtonSimple starButton;
         private final Button menuButton;
         private final Function<PlayerAction, CompletableFuture<Void>> onAction;
         private GSongInfo gSong;
@@ -1411,7 +1401,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.downloadIcon.addCssClass(Classes.labelDim.className());
             this.append(downloadIcon);
 
-            this.starButton = new StarButton(
+            this.starButton = new StarButtonSimple(
                     Optional.empty(),
                     newValue -> {
                         if (this.gSong == null) {
