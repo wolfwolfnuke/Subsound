@@ -1,5 +1,6 @@
 package org.subsound.ui.components;
 
+import org.gnome.gtk.Align;
 import org.gnome.gtk.Inscription;
 import org.subsound.ui.models.GDownloadState;
 
@@ -18,6 +19,13 @@ public class SongDownloadStatusIcon extends Inscription {
 
     public SongDownloadStatusIcon() {
         super();
+        // Char-based sizing didn't accommodate combining/emoji glyphs (✓⃝ and 🗘 render larger
+        // than ASCII). Reserve a fixed pixel box and center the text inside it.
+        this.setSizeRequest(24, 24);
+        this.setXalign(0.5f);
+        this.setYalign(0.5f);
+        this.setValign(Align.CENTER);
+        this.setHalign(Align.CENTER);
         // Glyph is set on first updateDownloadState() during bind. Starting invisible
         // (opacity=0) means no initial setText is needed.
         this.setOpacity(0);
