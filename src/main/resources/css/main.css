@@ -33,10 +33,13 @@
 .starred {
     color: yellow;
     font-size: 24px;
+    opacity: 0.85;
+    transition: opacity 100ms ease-out, text-shadow 100ms ease-out;
 }
 .starred:hover {
-    /*text-decoration: underline;*/
+    opacity: 1;
     font-weight: bold;
+    text-shadow: 0 0 6px rgba(255, 220, 0, 0.6);
 }
 
 .ListItemPlayingIcon {
