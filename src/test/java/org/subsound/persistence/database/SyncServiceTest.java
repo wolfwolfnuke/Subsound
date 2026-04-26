@@ -64,7 +64,7 @@ public class SyncServiceTest {
         when(songInfo.title()).thenReturn("Song One");
         when(songInfo.albumId()).thenReturn("album-1");
         when(songInfo.artistId()).thenReturn("artist-1");
-        when(songInfo.artist()).thenReturn("Artist One");
+        when(songInfo.artistName()).thenReturn("Artist One");
         when(songInfo.duration()).thenReturn(Duration.ofMinutes(3));
         when(songInfo.year()).thenReturn(Optional.of(2023));
         when(songInfo.starred()).thenReturn(Optional.empty());

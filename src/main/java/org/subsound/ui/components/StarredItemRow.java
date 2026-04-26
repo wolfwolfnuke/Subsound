@@ -320,7 +320,7 @@ public class StarredItemRow extends Box {
         String durationString = Utils.formatDurationShort(songInfo.duration());
         this.titleLabel.setLabel(songInfo.title());
         this.durationLabel.setLabel(durationString);
-        this.artistNameLabel.setLabel(songInfo.artist());
+        this.artistNameLabel.setLabel(songInfo.artistName());
         this.albumNameLabel.setLabel(songInfo.album());
         int trackNumber = this.index.get() + 1;
         this.trackNumberLabel.setLabel("%d".formatted(trackNumber));

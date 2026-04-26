@@ -6,6 +6,7 @@ import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.subsound.configuration.Config.ServerConfig;
@@ -24,6 +25,8 @@ import javax.net.ssl.X509TrustManager;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -45,9 +48,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import static java.lang.annotation.ElementType.TYPE_USE;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
 import static java.util.Optional.ofNullable;
 import static org.subsound.app.state.AppManager.SERVER_ID;
 import static org.subsound.integration.servers.subsonic.SubsonicClientV2.OpenSubsonicExtensions.OpenSubsonicFeature.FormPost;
+import static org.subsound.integration.servers.subsonic.SubsonicClientV2.OpenSubsonicExtensions.OpenSubsonicFeature.SongLyrics;
 import static org.subsound.persistence.ThumbnailCache.toCachePath;
 import static org.subsound.utils.LogUtils.loggingInterceptor;
 import static org.subsound.utils.LogUtils.userAgentInterceptor;
@@ -308,6 +314,17 @@ public class SubsonicClientV2 implements ServerClient {
     }
 
     // -- Child (song) --
+    record OSReplayGain(
+            double trackGain,
+            double albumGain,
+            double trackPeak,
+            double albumPeak,
+            double baseGain
+    ){}
+    record OSArtistJson(
+            String id,
+            String name
+    ){}
     record ChildJson(
             String id,
             String parent,
@@ -330,8 +347,22 @@ public class SubsonicClientV2 implements ServerClient {
             Instant created,
             String albumId,
             String artistId,
-            Boolean isVideo
+            Boolean isVideo,
+            @OpenSubsonicV1 @Nullable List<OSArtistJson> artists,
+            @OpenSubsonicV1 @Nullable List<OSArtistJson> albumArtists,
+            @OpenSubsonicV1 @Nullable String displayArtist,
+            @OpenSubsonicV1 @Nullable String displayAlbumArtist,
+            @OpenSubsonicV1 @Nullable List<String> moods,
+            @OpenSubsonicV1 @Nullable String explicitStatus,
+            @OpenSubsonicV1 @Nullable OSReplayGain replayGain
     ) {}
+
+    @Target(TYPE_USE)
+    @Retention(RUNTIME)
+    /** not sure about the purpose of this annotation yet,
+     * but I will keep marking OS fields with @OpenSubsonicV1 for now */
+    public @interface OpenSubsonicV1 {}
+
 
     // -- ArtistID3 --
     record ArtistID3Json(
@@ -552,6 +583,7 @@ public class SubsonicClientV2 implements ServerClient {
         @SerializedName("subsonic-response")
         ScanStatusInner subsonicResponse;
         static class ScanStatusInner {
+            String type;
             String status;
             String version;
             String serverVersion;
@@ -584,6 +616,10 @@ public class SubsonicClientV2 implements ServerClient {
                 streamFormat.isEmpty() ? defaultSuffix : streamFormat
         );
 
+        var artists = Utils.ofMaybeList(song.artists)
+                .map(this::toArtistId);
+                //.orElseGet(() -> List.of(new ArtistId(song.artistId(), song.artist())));
+
         return new SongInfo(
                 song.id(),
                 song.title(),
@@ -595,11 +631,13 @@ public class SubsonicClientV2 implements ServerClient {
                 ofNullable(song.genre()).orElse(""),
                 song.playCount() != null ? song.playCount() : 0L,
                 ofNullable(song.userRating()),
-                song.artistId(),
-                song.artist(),
+                new ArtistId(song.artistId(), song.artist()),
+                artists,
+                Utils.ofMaybeList(song.albumArtists).map(this::toArtistId),
                 song.albumId(),
                 song.album(),
                 duration,
+                song.moods == null ? List.of() : song.moods,
                 ofNullable(song.starred()),
                 ofNullable(song.created()),
                 toCoverArt(song.albumId(), new AlbumIdentifier(song.albumId())),
@@ -607,6 +645,10 @@ public class SubsonicClientV2 implements ServerClient {
                 transcodeInfo,
                 downloadUri
         );
+    }
+
+    private List<ArtistId> toArtistId(List<OSArtistJson> osArtistJsons) {
+        return osArtistJsons.stream().map(a -> new ArtistId(a.id, a.name)).toList();
     }
 
     private List<SongInfo> toSongInfoList(List<ChildJson> songs) {

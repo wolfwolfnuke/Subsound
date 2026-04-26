@@ -62,11 +62,13 @@ public interface ServerClient {
     ) {}
 
     record ServerInfo(
+            Optional<String> serverType,
             String apiVersion,
             long songCount,
             Optional<Integer> folderCount,
             Optional<Instant> lastScan,
-            Optional<String> serverVersion
+            Optional<String> serverVersion,
+            boolean isOpenSubsonic
     ) {}
 
     record TranscodedStream(
@@ -102,6 +104,7 @@ public interface ServerClient {
 
     record CoverArtResponse(byte[] data, String contentType) {}
 
+    record ArtistId(String id, String name) {}
     @RecordBuilderFull
     record SongInfo(
             String id,
@@ -114,11 +117,13 @@ public interface ServerClient {
             String genre,
             Long playCount,
             Optional<Integer> userRating,
-            String artistId,
-            String artist,
+            ArtistId mainArtist,
+            Optional<List<ArtistId>> artists,
+            Optional<List<ArtistId>> albumArtists,
             String albumId,
             String album,
             Duration duration,
+            List<String> moods,
             Optional<Instant> starred,
             Optional<Instant> created,
             Optional<CoverArt> coverArt,
@@ -126,6 +131,12 @@ public interface ServerClient {
             TranscodeInfo transcodeInfo,
             URI downloadUri
     ) implements ServerClientSongInfoBuilder.With {
+        public String artistName() {
+            return mainArtist.name();
+        }
+        public String artistId() {
+            return mainArtist.id();
+        }
         public boolean isStarred() {
             return starred.isPresent();
         }
@@ -134,7 +145,7 @@ public interface ServerClient {
         public String toString() {
             return "SongInfo{" +
                     "id='" + id + '\'' +
-                    ", artist='" + artist + '\'' +
+                    ", artist='" + artists + '\'' +
                     ", title='" + title + '\'' +
                     '}';
         }

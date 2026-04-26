@@ -162,7 +162,7 @@ public class PlayQueueItemRow extends Box {
         }
 
         this.titleLabel.setLabel(songInfo.title());
-        this.artistLabel.setLabel(songInfo.artist());
+        this.artistLabel.setLabel(songInfo.artistName());
         this.durationLabel.setLabel(Utils.formatDurationShort(songInfo.duration()));
 
         // Update album art in-place

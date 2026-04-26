@@ -247,8 +247,8 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
         return new MPRISMetadata(
                 new TrackId(np.song().id()),
                 np.song().duration(),
-                List.of(np.song().artist()),
-                List.of(np.song().artist()),
+                List.of(np.song().artistName()),
+                List.of(np.song().artistName()),
                 np.song().album(),
                 np.song().title(),
                 discNumber,

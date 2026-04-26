@@ -1,5 +1,6 @@
 package org.subsound.persistence;
 
+import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.SongInfo;
 import org.subsound.integration.ServerClient.TranscodeInfo;
 import org.subsound.integration.ServerClientSongInfoBuilder;
@@ -49,8 +50,7 @@ public class DownloadManagerTest {
         SongInfo songInfo = ServerClientSongInfoBuilder.builder()
                 .id(songId)
                 .title("Song One")
-                .artistId("artist-1")
-                .artist("Artist Name")
+                .mainArtist(new ServerClient.ArtistId("artist-1", "Artist Name"))
                 .albumId("album-1")
                 .album("Album Name")
                 .duration(Duration.ofMinutes(3))

@@ -414,7 +414,7 @@ public class PlayerBar extends Box implements AppManager.StateListener {
 
             Optional<SongInfo> prevSongInfo = prevState.nowPlaying().map(NowPlaying::song);
             var prevSongTitle = prevSongInfo.map(SongInfo::title).orElse("");
-            var prevSongArtist = prevSongInfo.map(SongInfo::artist).orElse("");
+            var prevSongArtist = prevSongInfo.map(SongInfo::artistName).orElse("");
             var prevSongAlbumTitle = prevSongInfo.map(SongInfo::album).orElse("");
             var prevSongStarred = prevSongInfo.flatMap(SongInfo::starred);
 
@@ -444,8 +444,8 @@ public class PlayerBar extends Box implements AppManager.StateListener {
                     if (!song.title().equals(prevSongTitle)) {
                         songTitle.setLabel(song.title());
                     }
-                    if (!song.artist().equals(prevSongArtist)) {
-                        artistTitle.setLabel(song.artist());
+                    if (!song.artistName().equals(prevSongArtist)) {
+                        artistTitle.setLabel(song.artistName());
                     }
                     switch (nowPlaying.state()) {
                         case LOADING -> this.playerScrubber.setFill(nowPlaying.bufferingProgress().total(), nowPlaying.bufferingProgress().count());

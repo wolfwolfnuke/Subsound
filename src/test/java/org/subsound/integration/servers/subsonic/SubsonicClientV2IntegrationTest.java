@@ -101,7 +101,7 @@ public class SubsonicClientV2IntegrationTest {
 
         var song = client.getSong(firstSongId);
         System.out.println("Song: " + song.title());
-        System.out.println("Artist: " + song.artist());
+        System.out.println("Artist: " + song.artistName());
         System.out.println("Duration: " + song.duration().toSeconds() + "s");
         System.out.println("Stream URI: " + client.getStreamUri(song.id()));
     }
@@ -112,7 +112,7 @@ public class SubsonicClientV2IntegrationTest {
         var starred = client.getStarred();
         System.out.println("Starred songs: " + starred.songs().size());
         starred.songs().stream().limit(5).forEach(s ->
-                System.out.println("  - " + s.artist() + " - " + s.title())
+                System.out.println("  - " + s.artistName() + " - " + s.title())
         );
     }
 
@@ -139,7 +139,7 @@ public class SubsonicClientV2IntegrationTest {
         System.out.println("Playlist: " + playlist.name());
         System.out.println("Songs: " + playlist.songs().size());
         playlist.songs().stream().limit(5).forEach(s ->
-                System.out.println("  - " + s.artist() + " - " + s.title())
+                System.out.println("  - " + s.artistName() + " - " + s.title())
         );
     }
 

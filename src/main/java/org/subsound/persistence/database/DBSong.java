@@ -37,7 +37,7 @@ public record DBSong(
                 songInfo.title(),
                 songInfo.year(),
                 songInfo.artistId(),
-                songInfo.artist(),
+                songInfo.artistName(),
                 songInfo.duration(),
                 songInfo.starred(),
                 songInfo.coverArt().map(CoverArt::coverArtId),

@@ -331,7 +331,7 @@ public class CommandPalette extends Overlay {
                 case GSearchResultItem.SearchEntry.SongEntry songEntry -> {
                     SongInfo songInfo = songEntry.song();
                     this.titleLabel.setLabel(songInfo.title());
-                    this.artistLabel.setLabel(songInfo.artist());
+                    this.artistLabel.setLabel(songInfo.artistName());
                     this.durationLabel.setLabel(Utils.formatDurationShort(songInfo.duration()));
                     this.typeBadge.setVisible(false);
                     this.separatorLabel.setVisible(true);

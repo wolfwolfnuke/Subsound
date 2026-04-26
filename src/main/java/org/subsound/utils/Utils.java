@@ -40,7 +40,9 @@ import java.text.StringCharacterIterator;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -286,6 +288,16 @@ public class Utils {
             path = path.substring(0, path.length() - 1);
         }
         return path;
+    }
+
+    public static <T> Optional<List<T>> ofMaybeList(@Nullable List<T> list) {
+        if (list == null) {
+            return Optional.empty();
+        }
+        if (list.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(list);
     }
 
     public record SignalWidget<T extends Widget>(

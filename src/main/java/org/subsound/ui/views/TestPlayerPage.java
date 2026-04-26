@@ -1,8 +1,5 @@
 package org.subsound.ui.views;
 
-import org.subsound.app.state.AppManager;
-import org.subsound.app.state.PlayerAction;
-import org.subsound.integration.ServerClient.SongInfo;
 import org.gnome.gtk.Align;
 import org.gnome.gtk.Box;
 import org.gnome.gtk.Button;
@@ -10,6 +7,10 @@ import org.gnome.gtk.Orientation;
 import org.gnome.gtk.Scale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.subsound.app.state.AppManager;
+import org.subsound.app.state.PlayerAction;
+import org.subsound.integration.ServerClient.ArtistId;
+import org.subsound.integration.ServerClient.SongInfo;
 
 import java.io.File;
 import java.net.URI;
@@ -138,11 +139,13 @@ public class TestPlayerPage extends Box {
                     "",
                     1L,
                     Optional.empty(),
-                    "",
-                    "Test artist",
+                    new ArtistId("id1", "test artist"),
+                    Optional.empty(),
+                    Optional.empty(),
                     "",
                     "Test album",
                     Duration.ofSeconds(121),
+                    List.of(),
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),

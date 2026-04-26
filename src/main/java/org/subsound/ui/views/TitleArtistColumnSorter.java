@@ -38,9 +38,9 @@ public class TitleArtistColumnSorter extends Sorter {
             case TITLE_ASC -> fromCompare(aa.gSong().getSongInfo().title().compareTo(bb.gSong().getSongInfo().title()));
             // the built-in sorting in the ColumnView handles the reversing, so we need to return same result here
             case TITLE_DESC -> fromCompare(aa.gSong().getSongInfo().title().compareTo(bb.gSong().getSongInfo().title()));
-            case ARTIST_ASC -> fromCompare(aa.gSong().getSongInfo().artist().compareTo(bb.gSong().getSongInfo().artist()));
+            case ARTIST_ASC -> fromCompare(aa.gSong().getSongInfo().artistName().compareTo(bb.gSong().getSongInfo().artistName()));
             // the built-in sorting in the ColumnView handles the reversing, so we need to return same result here
-            case ARTIST_DESC -> fromCompare(aa.gSong().getSongInfo().artist().compareTo(bb.gSong().getSongInfo().artist()));
+            case ARTIST_DESC -> fromCompare(aa.gSong().getSongInfo().artistName().compareTo(bb.gSong().getSongInfo().artistName()));
         };
         //var sor = this.getOrder();
         //System.out.printf("compare (%s|%s): %s vs %s%n", sor.name(), res.name(), aa.gSong().getSongInfo().title(), bb.gSong().getSongInfo().title());

@@ -3,6 +3,7 @@ package org.subsound.app.state;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.SongInfo;
 import org.subsound.integration.ServerClientSongInfoBuilder;
 import org.subsound.persistence.database.Database;
@@ -30,8 +31,7 @@ public class StarredListStoreTest {
         return ServerClientSongInfoBuilder.builder()
                 .id(id)
                 .title("Song " + id)
-                .artistId("artist-1")
-                .artist("Artist")
+                .mainArtist(new ServerClient.ArtistId("artist-1", "Artist"))
                 .albumId("album-1")
                 .album("Album")
                 .duration(Duration.ofMinutes(3))

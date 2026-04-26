@@ -208,7 +208,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
             var song = entry.song();
             return containsIgnoreCase(song.title(), q)
-                   || containsIgnoreCase(song.artist(), q)
+                   || containsIgnoreCase(song.artistName(), q)
                    || containsIgnoreCase(song.album(), q);
         });
         this.filterModel = new FilterListModel<>(this.listModel, this.searchFilter);
@@ -1328,7 +1328,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.boundEntry = entry;
             var info = entry.gSong().getSongInfo();
             this.titleLabel.setLabel(info.title());
-            this.artistLabel.setLabel(info.artist() != null ? info.artist() : "");
+            this.artistLabel.setLabel(info.artistName() != null ? info.artistName() : "");
             this.albumArt.update(info.coverArt().orElse(null));
             boolean isPlaying = isPlayingEntry(entry.getQueueItemId(), playingItemId, info.id());
             updateRow(isPlaying);
