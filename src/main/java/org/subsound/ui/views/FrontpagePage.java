@@ -1,6 +1,7 @@
 package org.subsound.ui.views;
 
 import org.gnome.adw.Carousel;
+import org.gnome.adw.Clamp;
 import org.gnome.gio.ListStore;
 import org.gnome.gtk.Align;
 import org.gnome.gtk.Box;
@@ -22,6 +23,7 @@ import org.gnome.gtk.SliceListModel;
 import org.gnome.gtk.SortListModel;
 import org.gnome.gtk.Stack;
 import org.gnome.pango.EllipsizeMode;
+import org.gnome.pango.WrapMode;
 import org.javagi.gio.ListIndexModel;
 import org.javagi.gobject.SignalConnection;
 import org.jspecify.annotations.Nullable;
@@ -564,6 +566,7 @@ public class FrontpagePage extends Box implements AppManager.StateListener {
             this.nameLabel.addCssClass(Classes.heading.className());
             this.nameLabel.setMaxWidthChars(20);
             this.nameLabel.setEllipsize(EllipsizeMode.END);
+            this.nameLabel.setWrapMode(WrapMode.WORD_CHAR);
 
             this.countLabel = new Label();
             this.countLabel.setHalign(START);
@@ -578,7 +581,10 @@ public class FrontpagePage extends Box implements AppManager.StateListener {
             textBox.setValign(Align.CENTER);
             textBox.setHexpand(true);
 
-            textBox.append(nameLabel);
+            var clamp = new Clamp();
+            clamp.setChild(nameLabel);
+            clamp.setMaximumSize(150);
+            textBox.append(clamp);
             textBox.append(countLabel);
 
             this.append(art);
