@@ -6,11 +6,11 @@ import org.gnome.gdk.ModifierType;
 import org.gnome.gio.ListStore;
 import org.gnome.glib.Type;
 import org.gnome.gobject.GObject;
-import org.gnome.gtk.Align;
 import org.gnome.gtk.Box;
 import org.gnome.gtk.Button;
 import org.gnome.gtk.ColumnView;
 import org.gnome.gtk.ColumnViewColumn;
+import org.gnome.gtk.ColumnViewSorter;
 import org.gnome.gtk.CustomFilter;
 import org.gnome.gtk.Entry;
 import org.gnome.gtk.EventControllerKey;
@@ -18,6 +18,7 @@ import org.gnome.gtk.FilterChange;
 import org.gnome.gtk.FilterListModel;
 import org.gnome.gtk.Label;
 import org.gnome.gtk.ListItem;
+import org.gnome.gtk.ListScrollFlags;
 import org.gnome.gtk.ListTabBehavior;
 import org.gnome.gtk.MenuButton;
 import org.gnome.gtk.Overlay;
@@ -30,6 +31,7 @@ import org.gnome.gtk.Separator;
 import org.gnome.gtk.SignalListItemFactory;
 import org.gnome.gtk.SingleSelection;
 import org.gnome.gtk.SortListModel;
+import org.gnome.gtk.SortType;
 import org.gnome.gtk.Stack;
 import org.gnome.pango.EllipsizeMode;
 import org.javagi.gobject.SignalConnection;
@@ -98,6 +100,9 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     private final ListStore<GPlaylistEntry> listModel = new ListStore<>();
     private final FilterListModel<GPlaylistEntry> filterModel;
     private final CustomFilter searchFilter;
+    private final ColumnViewColumn titleCol;
+    private final TitleArtistColumnSorter titleSorter;
+    private volatile TitleArtistColumnSorter.States targetSort;
     private volatile String searchQuery = "";
     private final SortListModel<GPlaylistEntry> sortModel;
     private final SingleSelection<GPlaylistEntry> selectionModel;
@@ -290,37 +295,11 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         nowPlayingCol.setSorter(orderSorter);
         this.columnView.appendColumn(nowPlayingCol);
 
-        // --- Album art column (60px, no sorter) ---
-        // RoundedAlbumArtV2.update() just records intent; actual setPaintable happens on onMap.
-        // This keeps bind cheap so ColumnView's per-splice factory work stays near the floor.
-        var artFactory = new SignalListItemFactory();
-        artFactory.onSetup(obj -> {
-            var listItem = (ListItem) obj;
-            listItem.setChild(new RoundedAlbumArtV2(appManager, 48));
-        });
-        artFactory.onBind(obj -> {
-            var listItem = (ListItem) obj;
-            var entry = (GPlaylistEntry) listItem.getItem();
-            if (entry == null) {
-                return;
-            }
-            if (listItem.getChild() instanceof RoundedAlbumArtV2 art) {
-                art.update(entry.song().coverArt().orElse(null));
-            }
-        });
-        artFactory.onTeardown(obj -> {
-            var listItem = (ListItem) obj;
-            listItem.setChild(null);
-        });
-        var artCol = new ColumnViewColumn("", artFactory);
-        artCol.setFixedWidth(60);
-        this.columnView.appendColumn(artCol);
-
         // --- Title column (expand, sortable by title) ---
         var titleFactory = new SignalListItemFactory();
         titleFactory.onSetup(obj -> {
             var listItem = (ListItem) obj;
-            var cell = new TitleArtistCell(this.onNavigate);
+            var cell = new TitleArtistCell(appManager, this.onNavigate);
             listItem.setChild(cell);
         });
         titleFactory.onBind(obj -> {
@@ -354,13 +333,48 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             listItem.setChild(null);
         });
 
-        var titleSorter = new PlaylistEntrySorter((a, b) -> {
-            return a.gSong().getTitle().compareToIgnoreCase(b.gSong().getTitle());
-        });
-        var titleCol = new ColumnViewColumn("Title", titleFactory);
+        this.titleSorter = new TitleArtistColumnSorter();
+        final String titleColDefaultTitle = "Title";
+        this.titleCol = new ColumnViewColumn(titleColDefaultTitle, titleFactory);
         titleCol.setExpand(true);
         titleCol.setSorter(titleSorter);
         this.columnView.appendColumn(titleCol);
+
+        // ColumnViewSorter is the global columnview sorter that controls the columns:
+        ColumnViewSorter cvs = (ColumnViewSorter) this.columnView.getSorter();
+        cvs.onChanged(change -> {
+            var ps = cvs.getPrimarySortColumn();
+            boolean isTitle = titleCol == ps;
+            if (isTitle) {
+                if (this.targetSort != null) {
+                    var copy = this.targetSort;
+                    this.targetSort = null;
+                    Utils.runOnMainThread(() -> {
+                        var title = switch (copy) {
+                            case NONE -> titleColDefaultTitle;
+                            case ARTIST_ASC -> "Artist";
+                            case ARTIST_DESC -> "Artist";
+                            case TITLE_ASC -> "Title";
+                            case TITLE_DESC -> "Title";
+                        };
+                        titleCol.setTitle(title);
+                        if (copy == TitleArtistColumnSorter.States.NONE) {
+                            // reset back to default sorting
+                            this.resetColumnSorting();
+                        }
+                        //System.out.println("columnView: sorter.onChanged: %s isTitle=%b this.targetSort=%s".formatted(change.name(), isTitle, this.targetSort));
+                    });
+                    return;
+                } else {
+                    var next = titleSorter.next();
+                    this.targetSort = next;
+                    //System.out.println("columnView: sorter.onChanged: %s isTitle=%b next=%s".formatted(change.name(), isTitle, next.name()));
+                }
+            } else {
+                // fallthrough means using the included column sorter
+                //System.out.println("columnView: sorter.onChanged: %s isTitle=%b".formatted(change.name(), isTitle));
+            }
+        });
 
         // --- Album column (200px, sortable by album) ---
         var albumFactory = new SignalListItemFactory();
@@ -618,6 +632,13 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         this.append(this.scroll);
     }
 
+    private void resetColumnSorting() {
+        // this should be safe since we also reset columnView.sortByColumn right after:
+        this.titleSorter.resetSorter();
+        this.titleCol.setTitle("Title");
+        this.columnView.sortByColumn(null, SortType.ASCENDING);
+    }
+
     private CompletableFuture<ServerClient.Playlist> refreshCurrentPlaylistAsync() {
         var songStore = appManager.getSongStore();
         return Utils.doAsync(() -> {
@@ -678,8 +699,14 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             // FilterListModel → SortListModel → ColumnView chain. splice(0, N, items) collapses
             // the teardown and repopulate into one items-changed event.
             int oldN = this.listModel.getNItems();
+            if (oldN > 0 && n > 0) {
+                this.columnView.scrollTo(0, this.titleCol, ListScrollFlags.NONE, null);
+            }
             this.listModel.splice(0, oldN, items);
             long tAfterSplice = System.nanoTime();
+            this.resetColumnSorting();
+            long tAfter_resetColumnSorting = System.nanoTime();
+
             // Subscribe to GPlaylist metadata changes for the current playlist
             if (this.playlistNotifySignal != null) {
                 this.playlistNotifySignal.disconnect();
@@ -702,7 +729,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
             long tMainEnd = System.nanoTime();
             log.info(
-                    "setSongs: n={} alloc={}ms mainEnter={}ms header={}ms splice(old={})={}ms playlistScan={}ms total(main)={}ms total(all)={}ms",
+                    "setSongs: n={} alloc={}ms mainEnter={}ms header={}ms splice(old={})={}ms playlistScan={}ms resetColumnSorting={} total(main)={}ms total(all)={}ms",
                     n,
                     (tAfterAlloc - tStart) / 1_000_000,
                     (tMainStart - tAfterAlloc) / 1_000_000,
@@ -710,6 +737,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                     oldN,
                     (tAfterSplice - tBeforeSplice) / 1_000_000,
                     (tMainEnd - tAfterSplice) / 1_000_000,
+                    (tAfter_resetColumnSorting - tAfterSplice) / 1_000_000,
                     (tMainEnd - tMainStart) / 1_000_000,
                     (tMainEnd - tStart) / 1_000_000
             );
@@ -1237,14 +1265,15 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         private final Label titleLabel;
         private final Consumer<AppRoute> onNavigate;
         private final ClickLabel artistLabel;
+        private final RoundedAlbumArtV2 albumArt;
         private GSongInfo gSong;
         private volatile NowPlayingState playingState = NowPlayingState.NONE;
         private ListItem listItem;
         private boolean itemAndPositionIsPlaying;
         @Nullable volatile GPlaylistEntry boundEntry;
 
-        TitleArtistCell(Consumer<AppRoute> onNavigate) {
-            super(VERTICAL, 2);
+        TitleArtistCell(AppManager appManager, Consumer<AppRoute> onNavigate) {
+            super(HORIZONTAL, 8);
             this.onNavigate = onNavigate;
             this.setHalign(FILL);
             this.setValign(FILL);
@@ -1252,6 +1281,13 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.setVexpand(true);
             this.setMarginStart(4);
             this.setMarginEnd(4);
+
+            var albumArtBox = new Clamp();
+            albumArtBox.setMaximumSize(48);
+            this.albumArt = new RoundedAlbumArtV2(appManager, 48);
+            this.albumArt.setValign(CENTER);
+            albumArtBox.setChild(this.albumArt);
+            this.append(albumArtBox);
 
             this.titleLabel = new Label();
             this.titleLabel.setHalign(START);
@@ -1278,6 +1314,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.artistLabel.setEllipsize(EllipsizeMode.END);
 
             var inner = new Box(VERTICAL, 2);
+            inner.setHexpand(true);
             inner.setVexpand(true);
             inner.setValign(CENTER);
             inner.append(titleLabel);
@@ -1292,6 +1329,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             var info = entry.gSong().getSongInfo();
             this.titleLabel.setLabel(info.title());
             this.artistLabel.setLabel(info.artist() != null ? info.artist() : "");
+            this.albumArt.update(info.coverArt().orElse(null));
             boolean isPlaying = isPlayingEntry(entry.getQueueItemId(), playingItemId, info.id());
             updateRow(isPlaying);
         }

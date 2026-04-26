@@ -72,4 +72,8 @@ public class TitleArtistColumnSorter extends Sorter {
         });
         return state;
     }
+
+    public void resetSorter() {
+        this.state = States.NONE;
+    }
 }
