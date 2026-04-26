@@ -53,7 +53,7 @@ public class GtkColumnViewBenchmarkTest {
     private static final int ROWS = 200;
     private static final int ART_SIZE = 48;
     /** Flip to compare bind-time setPaintable vs. idle-deferred setPaintable. */
-    private static final boolean DEFER_SET_PAINTABLE = true;
+    private static final boolean DEFER_SET_PAINTABLE = false;
 
     public static void main(String[] args) {
         Application app = new Application("org.subsound.debug.ColumnViewBenchmark", ApplicationFlags.DEFAULT_FLAGS);
@@ -96,10 +96,31 @@ public class GtkColumnViewBenchmarkTest {
         return Texture.forPixbuf(pixbuf);
     }
 
+    /** Convert HSV hue [0,1) with fixed saturation/value into an RRGGBBAA int with alpha=0xff. */
+    private static int hueToRgba(float hue) {
+        float h = (hue * 6f) % 6f;
+        float f = h - (int) h;
+        int v = 0xcc;
+        int p = 0x33;
+        int q = (int) (v - (v - p) * f);
+        int t = (int) (p + (v - p) * f);
+        int r, g, b;
+        switch ((int) h) {
+            case 0 -> { r = v; g = t; b = p; }
+            case 1 -> { r = q; g = v; b = p; }
+            case 2 -> { r = p; g = v; b = t; }
+            case 3 -> { r = p; g = q; b = v; }
+            case 4 -> { r = t; g = p; b = v; }
+            default -> { r = v; g = p; b = q; }
+        }
+        return (r << 24) | (g << 16) | (b << 8) | 0xff;
+    }
+
     /** Picture subclass that matches real {@code RoundedAlbumArtV2}'s coalesced idle dispatch. */
     public static class BenchPicture extends Picture {
         @org.jspecify.annotations.Nullable Texture pending;
         boolean applyScheduled = false;
+        org.javagi.gobject.@org.jspecify.annotations.Nullable SignalConnection<?> positionSignal;
 
         public BenchPicture(MemorySegment address) { super(address); }
 
@@ -148,7 +169,7 @@ public class GtkColumnViewBenchmarkTest {
             var artFactory = new SignalListItemFactory();
             artFactory.onSetup(obj -> {
                 var item = (ListItem) obj;
-                var picture = new Picture();
+                var picture = new BenchPicture();
                 picture.setContentFit(ContentFit.COVER);
                 picture.setSizeRequest(ART_SIZE, ART_SIZE);
                 picture.setOverflow(Overflow.HIDDEN);
@@ -157,18 +178,30 @@ public class GtkColumnViewBenchmarkTest {
             });
             artFactory.onBind(obj -> {
                 var item = (ListItem) obj;
-                if (!(item.getChild() instanceof Picture pic)) {
+                if (!(item.getChild() instanceof BenchPicture pic)) {
                     return;
                 }
                 var row = (GRow) item.getItem();
                 if (row == null) {
                     return;
                 }
-                var tex = textures[(swapCount + row.index()) % textures.length];
+                // Simulate the real app's per-bind position-notify subscription on the ListItem.
+                // Handler is a no-op; we only want the cost of the subscription.
+                pic.positionSignal = item.onNotify("position", _ -> {});
+                // Unique texture per row, shifted by swapCount so every swap reassigns.
+                var tex = textures[(row.index() + swapCount) % textures.length];
                 if (DEFER_SET_PAINTABLE) {
-                    Utils.runOnMainThread(() -> pic.setPaintable(tex));
+                    pic.pending = tex;
+                    pic.scheduleApply();
                 } else {
                     pic.setPaintable(tex);
+                }
+            });
+            artFactory.onUnbind(obj -> {
+                var item = (ListItem) obj;
+                if (item.getChild() instanceof BenchPicture pic && pic.positionSignal != null) {
+                    pic.positionSignal.disconnect();
+                    pic.positionSignal = null;
                 }
             });
             artFactory.onTeardown(obj -> ((ListItem) obj).setChild(null));
