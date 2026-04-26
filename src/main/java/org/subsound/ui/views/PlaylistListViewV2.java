@@ -2,6 +2,7 @@ package org.subsound.ui.views;
 
 import org.gnome.adw.AlertDialog;
 import org.gnome.adw.Clamp;
+import org.gnome.gdk.ModifierType;
 import org.gnome.gio.ListStore;
 import org.gnome.glib.Type;
 import org.gnome.gobject.GObject;
@@ -46,7 +47,6 @@ import org.subsound.integration.ServerClient.PlaylistKind;
 import org.subsound.integration.ServerClient.SongInfo;
 import org.subsound.sound.PlaybinPlayer;
 import org.subsound.ui.components.AdwDialogHelper;
-import org.subsound.ui.components.AppNavigation;
 import org.subsound.ui.components.AppNavigation.AppRoute;
 import org.subsound.ui.components.Classes;
 import org.subsound.ui.components.ClickLabel;
@@ -500,7 +500,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         keyController.setPropagationPhase(PropagationPhase.CAPTURE);
         keyController.onKeyPressed((keyval, keycode, state) -> {
             // GDK_KEY_f = 0x0066 — Ctrl+F toggles the search bar
-            if (keyval == 0x66 && state.contains(org.gnome.gdk.ModifierType.CONTROL_MASK)) {
+            if (keyval == 0x66 && state.contains(ModifierType.CONTROL_MASK)) {
                 this.searchBar.setSearchMode(!this.searchBar.getSearchMode());
                 if (this.searchBar.getSearchMode()) {
                     this.searchEntry.grabFocus();
@@ -547,7 +547,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 return;
             }
 
-            if (reloadNeeded && playlist.kind() == ServerClient.PlaylistKind.NORMAL) {
+            if (reloadNeeded && playlist.kind() == PlaylistKind.NORMAL) {
                 reloadNeeded = false;
                 this.refreshCurrentPlaylistAsync();
             }
@@ -568,8 +568,8 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         this.scroll = ScrolledWindow.builder()
                 .setVexpand(true)
                 .setHexpand(true)
-                .setHalign(Align.FILL)
-                .setValign(Align.FILL)
+                .setHalign(FILL)
+                .setValign(FILL)
                 .setPropagateNaturalWidth(true)
                 .setPropagateNaturalHeight(true)
                 .build();
@@ -587,7 +587,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         this.menuButton = MenuButton.builder()
                 .setIconName(Icons.OpenMenu.getIconName())
                 .setPopover(buildMenuPopover())
-                .setValign(Align.CENTER)
+                .setValign(CENTER)
                 .setVisible(false)
                 .build();
         this.menuButton.addCssClass("flat");
@@ -628,7 +628,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             // Synthetic playlists (Downloaded, Starred) have no server-side representation —
             // hitting getPlaylist(id) would fail. They are refreshed via their own sources
             // (DownloadManager / StarredListStore) when underlying data changes.
-            if (playlist.kind() != ServerClient.PlaylistKind.NORMAL) {
+            if (playlist.kind() != PlaylistKind.NORMAL) {
                 return null;
             }
             var newPlaylist = appManager
@@ -664,8 +664,8 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         Utils.runOnMainThread(() -> {
             long tMainStart = System.nanoTime();
             this.titleLabel.setLabel(playlist.name());
-            this.menuButton.setVisible(playlist.kind() == ServerClient.PlaylistKind.NORMAL);
-            this.reloadButton.setVisible(playlist.kind() == ServerClient.PlaylistKind.NORMAL);
+            this.menuButton.setVisible(playlist.kind() == PlaylistKind.NORMAL);
+            this.reloadButton.setVisible(playlist.kind() == PlaylistKind.NORMAL);
             if (playlistChanged) {
                 // Reset the search/filter when navigating to a different playlist.
                 this.searchEntry.setText("");
@@ -686,7 +686,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 this.playlistNotifySignal = null;
             }
 
-            if (playlist.kind() == ServerClient.PlaylistKind.NORMAL) {
+            if (playlist.kind() == PlaylistKind.NORMAL) {
                 var store = appManager.getPlaylistsListStore();
                 for (int i = 0; i < store.getNItems(); i++) {
                     var gp = store.getItem(i);
@@ -1098,7 +1098,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var backButton = menuItem("\u2190 Back");
         backButton.onClicked(() -> stack.setVisibleChildName("main"));
         playlistsView.append(backButton);
-        playlistsView.append(new Separator(org.gnome.gtk.Orientation.HORIZONTAL));
+        playlistsView.append(new Separator(HORIZONTAL));
 
         var playlists = appManager.getPlaylistsListStore();
         for (int i = 0; i < playlists.getNItems(); i++) {
@@ -1268,14 +1268,14 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 if (artistId == null) {
                     return;
                 }
-                this.onNavigate.accept(new AppNavigation.AppRoute.RouteArtistInfo(artistId));
+                this.onNavigate.accept(new AppRoute.RouteArtistInfo(artistId));
             }
             );
             this.artistLabel.addCssClass(Classes.labelDim.className());
             this.artistLabel.addCssClass(Classes.caption.className());
             this.artistLabel.setHalign(START);
             this.artistLabel.setSingleLineMode(true);
-            this.artistLabel.setEllipsize(org.gnome.pango.EllipsizeMode.END);
+            this.artistLabel.setEllipsize(EllipsizeMode.END);
 
             var inner = new Box(VERTICAL, 2);
             inner.setVexpand(true);
@@ -1350,13 +1350,13 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 if (albumId == null) {
                     return;
                 }
-                this.onNavigate.accept(new AppNavigation.AppRoute.RouteAlbumInfo(albumId));
+                this.onNavigate.accept(new AppRoute.RouteAlbumInfo(albumId));
             }
             );
             this.albumLabel.addCssClass(Classes.labelDim.className());
             this.albumLabel.addCssClass(Classes.caption.className());
             this.albumLabel.setSingleLineMode(true);
-            this.albumLabel.setEllipsize(org.gnome.pango.EllipsizeMode.END);
+            this.albumLabel.setEllipsize(EllipsizeMode.END);
             this.append(albumLabel);
         }
 
