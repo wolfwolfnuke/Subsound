@@ -183,7 +183,15 @@ public class FrontpagePage extends Box implements AppManager.StateListener {
                     serverInfo = this.appManager.useClient(ServerClient::getServerInfo);
                 } catch (Exception e) {
                     log.warn("failed to load server info", e);
-                    serverInfo = new ServerClient.ServerInfo("?", 0, Optional.empty(), Optional.empty(), Optional.empty());
+                    serverInfo = new ServerClient.ServerInfo(
+                            Optional.empty(),
+                            "?",
+                            0,
+                            Optional.empty(),
+                            Optional.empty(),
+                            Optional.empty(),
+                            false
+                    );
                 }
                 var cfg = this.appManager.getConfig().serverConfig;
                 var serverUrl = cfg != null ? cfg.url() : "";

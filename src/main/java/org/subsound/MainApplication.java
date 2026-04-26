@@ -291,10 +291,10 @@ public class MainApplication {
                         ? new ServerClient.TranscodeSettings(cfg.serverConfig.audioFormat(), cfg.serverConfig.audioBitrate())
                         : null;
                 var settings = new SettingsPage(
+                        this.appManager,
                         info,
                         cfg.dataDir,
-                        transcodeSettings,
-                        appManager::handleAction
+                        transcodeSettings
                 );
                 NavigationPage navPage = NavigationPage.builder().setChild(settings).setTitle("Settings").build();
                 navigationView.push(navPage);

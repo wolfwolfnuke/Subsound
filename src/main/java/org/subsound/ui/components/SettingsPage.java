@@ -1,5 +1,6 @@
 package org.subsound.ui.components;
 
+import org.gnome.adw.ActionRow;
 import org.gnome.adw.ButtonRow;
 import org.gnome.adw.Clamp;
 import org.gnome.adw.ComboRow;
@@ -9,18 +10,18 @@ import org.gnome.gtk.Box;
 import org.gnome.gtk.StringList;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
+import org.subsound.app.state.AppManager;
 import org.subsound.app.state.PlayerAction;
 import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.TranscodeBitrate.MaximumBitrate;
 import org.subsound.integration.ServerClient.TranscodeBitrate.SourceQuality;
 import org.subsound.integration.ServerClient.TranscodeSettings;
 import org.subsound.ui.components.ServerConfigForm.SettingsInfo;
+import org.subsound.utils.Utils;
 
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 import static org.gnome.gtk.Orientation.VERTICAL;
 import static org.subsound.ui.components.Classes.destructiveAction;
@@ -29,9 +30,15 @@ import static org.subsound.utils.Utils.borderBox;
 public class SettingsPage extends Box {
     private final Logger log = org.slf4j.LoggerFactory.getLogger(SettingsPage.class);
 
+    private final AppManager appManager;
     private final ServerConfigForm form;
     private final ButtonRow clearSongCacheButton;
     private final ButtonRow clearThumbnailCacheButton;
+    private final PreferencesGroup serverInformation;
+    private final ActionRow serverTypeLabel;
+    private final ActionRow serverVersionLabel;
+    private final ActionRow apiVersionLabel;
+    private final ActionRow serverOpenSubsonic;
     private final PreferencesGroup localSettings;
     private final PreferencesGroup transcodeSettings;
     private final ComboRow audioFormatCombo;
@@ -39,21 +46,22 @@ public class SettingsPage extends Box {
     private final Box centerBox;
 
     public SettingsPage(
+            AppManager appManager,
             @Nullable SettingsInfo settingsInfo,
             Path dataDir,
-            @Nullable TranscodeSettings transcodeSettings,
-            Function<PlayerAction, CompletableFuture<Void>> onAction
+            @Nullable TranscodeSettings transcodeSettings
     ) {
         super(VERTICAL, 0);
+        this.appManager = appManager;
         this.setValign(Align.CENTER);
         this.setHalign(Align.CENTER);
         this.clearSongCacheButton = ButtonRow.builder().setTitle("Clear song cache").build();
         this.clearSongCacheButton.addCssClass(destructiveAction.className());
-        this.clearSongCacheButton.onActivated(() -> onAction.apply(new PlayerAction.ClearSongCache()));
+        this.clearSongCacheButton.onActivated(() -> appManager.handleAction(new PlayerAction.ClearSongCache()));
 
         this.clearThumbnailCacheButton = ButtonRow.builder().setTitle("Clear thumbnail cache").build();
         this.clearThumbnailCacheButton.addCssClass(destructiveAction.className());
-        this.clearThumbnailCacheButton.onActivated(() -> onAction.apply(new PlayerAction.ClearThumbnailCache()));
+        this.clearThumbnailCacheButton.onActivated(() -> appManager.handleAction(new PlayerAction.ClearThumbnailCache()));
 
         this.localSettings = new PreferencesGroup();
         this.localSettings.setTitle("Local settings");
@@ -105,7 +113,7 @@ public class SettingsPage extends Box {
                     var bitrate = bitRates.get(this.audioBitrateCombo.getSelected());
                     var selected = new TranscodeSettings(fmt, bitrate);
                     log.info("Selected transcode settings: {}", selected);
-                    onAction.apply(new PlayerAction.SaveTranscodeFormat(selected));
+                    this.appManager.handleAction(new PlayerAction.SaveTranscodeFormat(selected));
                 }
         );
         this.audioBitrateCombo.onNotify(
@@ -114,9 +122,21 @@ public class SettingsPage extends Box {
                     var bitrate = bitRates.get(this.audioBitrateCombo.getSelected());
                     var selected = new TranscodeSettings(fmt, bitrate);
                     log.info("Selected transcode settings: {}", selected);
-                    onAction.apply(new PlayerAction.SaveTranscodeFormat(selected));
+                    this.appManager.handleAction(new PlayerAction.SaveTranscodeFormat(selected));
                 }
         );
+
+        this.serverInformation = new PreferencesGroup();
+        this.serverInformation.setTitle("Server information");
+        this.serverInformation.setSeparateRows(false);
+        this.serverTypeLabel = newRow("Type");
+        this.serverVersionLabel = newRow("Version");
+        this.apiVersionLabel = newRow("API Version");
+        this.serverOpenSubsonic = newRow("OpenSubsonic support");
+        this.serverInformation.add(serverTypeLabel);
+        this.serverInformation.add(serverVersionLabel);
+        this.serverInformation.add(apiVersionLabel);
+        this.serverInformation.add(serverOpenSubsonic);
 
         this.transcodeSettings = new PreferencesGroup();
         this.transcodeSettings.setTitle("Transcode settings");
@@ -127,11 +147,12 @@ public class SettingsPage extends Box {
         this.form = new ServerConfigForm(
                 settingsInfo,
                 dataDir,
-                onAction
+                this.appManager::handleAction
         );
 
         this.centerBox = borderBox(VERTICAL, 8).setSpacing(8).build();
         this.centerBox.append(this.form);
+        this.centerBox.append(this.serverInformation);
         this.centerBox.append(this.transcodeSettings);
         this.centerBox.append(this.localSettings);
 
@@ -139,6 +160,27 @@ public class SettingsPage extends Box {
         clamp.setMaximumSize(600);
         clamp.setChild(this.centerBox);
         this.append(clamp);
+        this.refresh();
+    }
+
+    private void refresh() {
+        Utils.doAsync(() -> this.appManager.useClient(ServerClient::getServerInfo))
+                .thenAccept(serverInfo -> this.update(serverInfo));
+    }
+
+    private void update(ServerClient.ServerInfo serverInfo) {
+        Utils.runOnMainThread(() -> {
+            this.serverTypeLabel.setSubtitle(serverInfo.serverType().orElse("Unknown"));
+            this.serverVersionLabel.setSubtitle(serverInfo.serverVersion().orElse("Unknown"));
+            this.apiVersionLabel.setSubtitle(serverInfo.apiVersion());
+            this.serverOpenSubsonic.setSubtitle(serverInfo.isOpenSubsonic() ? "Yes" : "No");
+        });
+    }
+
+    static ActionRow newRow(String title) {
+        var row = new ActionRow();
+        row.setTitle(title);
+        return row;
     }
 
     public void setSettingsInfo(@Nullable SettingsInfo s) {

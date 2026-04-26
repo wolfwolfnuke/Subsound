@@ -87,6 +87,7 @@ public class SubsonicClientV2 implements ServerClient {
         this.username = cfg.username();
         this.password = cfg.password();
         this.supportedExtensions = Lazy.of(() -> {
+            // TODO: how to handle offline mode
             try {
                 return Optional.of(getOpenSubsonicExtensions());
             } catch (Exception e) {
@@ -133,6 +134,11 @@ public class SubsonicClientV2 implements ServerClient {
         } else {
             return extOpt.get().supports(FormPost);
         }
+    }
+        public boolean isLyricsSupported() {
+        return this.supportedExtensions.get()
+                .map(exts -> exts.supports(SongLyrics))
+                .orElse(false);
     }
 
     private static void configureTrustAllCerts(OkHttpClient.Builder builder) {
@@ -1128,7 +1134,15 @@ public class SubsonicClientV2 implements ServerClient {
         Optional<Instant> lastScan = scan.lastScan() != null ? Optional.of(scan.lastScan()) : Optional.empty();
         Optional<String> serverVersion = inner.serverVersion != null ? Optional.of(inner.serverVersion) : Optional.empty();
         String apiVersion = inner.version != null ? inner.version : API_VERSION;
-        return new ServerInfo(apiVersion, count, folderCount, lastScan, serverVersion);
+        return new ServerInfo(
+                ofNullable(inner.type),
+                apiVersion,
+                count,
+                folderCount,
+                lastScan,
+                serverVersion,
+                inner.openSubsonic
+        );
     }
 
     @Override
