@@ -50,6 +50,7 @@ import org.subsound.integration.ServerClient.SongInfo;
 import org.subsound.sound.PlaybinPlayer;
 import org.subsound.ui.components.AdwDialogHelper;
 import org.subsound.ui.components.AppNavigation.AppRoute;
+import org.subsound.ui.components.ArtistsLinkLabelV3;
 import org.subsound.ui.components.Classes;
 import org.subsound.ui.components.ClickLabel;
 import org.subsound.ui.components.Icons;
@@ -1264,7 +1265,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     private static class TitleArtistCell extends Box {
         private final Label titleLabel;
         private final Consumer<AppRoute> onNavigate;
-        private final ClickLabel artistLabel;
+        private final ArtistsLinkLabelV3 artistLabel;
         private final RoundedAlbumArtV2 albumArt;
         private GSongInfo gSong;
         private volatile NowPlayingState playingState = NowPlayingState.NONE;
@@ -1295,23 +1296,21 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.titleLabel.setSingleLineMode(true);
             this.titleLabel.setMaxWidthChars(36);
 
-            this.artistLabel = new ClickLabel(
-                    "", () -> {
+            this.artistLabel = new ArtistsLinkLabelV3(
+            artistId -> {
                 if (this.gSong == null) {
                     return;
                 }
-                var artistId = this.gSong.getSongInfo().artistId();
                 if (artistId == null) {
                     return;
                 }
                 this.onNavigate.accept(new AppRoute.RouteArtistInfo(artistId));
-            }
-            );
+            });
             this.artistLabel.addCssClass(Classes.labelDim.className());
             this.artistLabel.addCssClass(Classes.caption.className());
             this.artistLabel.setHalign(START);
-            this.artistLabel.setSingleLineMode(true);
-            this.artistLabel.setEllipsize(EllipsizeMode.END);
+            //this.artistLabel.setSingleLineMode(true);
+            //this.artistLabel.setEllipsize(EllipsizeMode.END);
 
             var inner = new Box(VERTICAL, 2);
             inner.setHexpand(true);
@@ -1328,7 +1327,15 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.boundEntry = entry;
             var info = entry.gSong().getSongInfo();
             this.titleLabel.setLabel(info.title());
-            this.artistLabel.setLabel(info.artistName() != null ? info.artistName() : "");
+            if (info.artists().isPresent() && !info.artists().get().isEmpty()) {
+                log.info("Song {} has artists={} albumArtists={}", info.id(), info.artists().get(), info.albumArtists().orElseGet(List::of));
+            }
+            var artists = info.artists().orElse(List.of());
+            if (artists.isEmpty()) {
+                log.info("Song {} has main={} artists={} albumArtists={}", info.id(), info.mainArtist(), info.artists().get(), info.albumArtists().orElseGet(List::of));
+                artists = List.of(info.mainArtist());
+            }
+            this.artistLabel.setArtists(artists);
             this.albumArt.update(info.coverArt().orElse(null));
             boolean isPlaying = isPlayingEntry(entry.getQueueItemId(), playingItemId, info.id());
             updateRow(isPlaying);
