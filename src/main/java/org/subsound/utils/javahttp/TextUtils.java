@@ -1,5 +1,6 @@
 package org.subsound.utils.javahttp;
 
+import org.gnome.glib.GLib;
 import org.subsound.integration.ServerClient;
 
 import java.util.Locale;
@@ -34,6 +35,10 @@ public class TextUtils {
         }
         var lower = s.toLowerCase(Locale.ENGLISH).substring(1);
         return first + lower;
+    }
+
+    public static String escapeMarkupGtkLabel(String text) {
+        return GLib.markupEscapeText(text, text.length());
     }
 }
 
