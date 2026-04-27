@@ -184,3 +184,38 @@ scale slider {
     background-color: var(--window-bg-color);
     color: var(--window-fg-color);
 }
+
+.artist-link {
+    opacity: 0.7; /* Dim the whole line by default */
+}
+
+/* V1 (Label with markup) used a 'link' sub-node; V2 uses Inscription children
+   carrying .artist-link-item. Style both so V1 and V2 callers look the same. */
+.artist-link link,
+.artist-link link:visited,
+.artist-link-item {
+    color: currentColor;
+    text-decoration: none !important;
+    outline: none;
+    opacity: 0.7;
+}
+
+.artist-link:hover {
+    opacity: 1.0;
+}
+
+.artist-link link:hover {
+    color: #ffffff !important;
+    text-decoration: underline;
+    text-decoration-color: #ffffff;
+    text-decoration-style: solid;
+    opacity: 1.0;
+}
+
+.artist-link-item:hover {
+    color: #ffffff !important;
+    text-decoration: underline;
+    text-decoration-color: #ffffff;
+    text-decoration-style: solid;
+    opacity: 1.0;
+}
