@@ -72,7 +72,7 @@ public class CachingClient implements ServerClient {
         }
         Throwable cause = e;
         while (cause != null) {
-            if (cause instanceof java.io.IOException) {
+            if (cause instanceof java.io.IOException || cause instanceof java.net.UnknownHostException) {
                 log.warn("Network error detected, auto-switching to offline mode");
                 this.networkStatus = NetworkStatus.OFFLINE;
                 return;
