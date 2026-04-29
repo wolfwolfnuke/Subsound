@@ -375,6 +375,9 @@ public class Utils {
     public static <T> T fromJson(String s, Class<T> clazz) {
         return GSON.fromJson(s, clazz);
     }
+    public static <T> T fromJson(String s, java.lang.reflect.Type type) {
+        return GSON.fromJson(s, type);
+    }
     public static <T> String toJson(T obj) {
         return GSON.toJson(obj);
     }

@@ -200,7 +200,10 @@ public class DatabaseServerServiceTest {
                 Optional.of(320),
                 5000000L,
                 "Rock",
-                "mp3"
+                "mp3",
+                Optional.empty(),
+                Optional.empty(),
+                List.of()
         );
 
         DBSong song2 = new DBSong(
@@ -221,7 +224,10 @@ public class DatabaseServerServiceTest {
                 Optional.empty(),
                 0L,
                 "",
-                ""
+                "",
+                Optional.empty(),
+                Optional.empty(),
+                List.of()
         );
 
         DBSong song3 = new DBSong(
@@ -242,7 +248,10 @@ public class DatabaseServerServiceTest {
                 Optional.of(256),
                 8000000L,
                 "Pop",
-                "flac"
+                "flac",
+                Optional.empty(),
+                Optional.empty(),
+                List.of()
         );
 
         // Test insert
@@ -264,6 +273,58 @@ public class DatabaseServerServiceTest {
         List<DBSong> starredSongs = service.listSongsByStarredAt();
         Assertions.assertThat(starredSongs).hasSize(2);
         Assertions.assertThat(starredSongs).usingRecursiveFieldByFieldElementComparator().containsExactly(song1, song3);
+    }
+
+    @Test
+    public void testSongArtistsAndMoodsRoundTrip() throws Exception {
+        File dbFile = folder.newFile("test_song_artists_moods.db");
+        Database db = new Database("jdbc:sqlite:" + dbFile.getAbsolutePath());
+
+        UUID serverId = UUID.randomUUID();
+        DatabaseServerService service = new DatabaseServerService(serverId, db);
+
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        var artists = List.of(
+                new ServerClient.ArtistId("a1", "Main Artist"),
+                new ServerClient.ArtistId("a2", "Featured")
+        );
+        var albumArtists = List.of(new ServerClient.ArtistId("a1", "Main Artist"));
+        var moods = List.of("Energetic", "Happy");
+
+        DBSong song = new DBSong(
+                "song-multi", serverId, "album-1", "Album One", "Song Multi",
+                Optional.of(2024), "a1", "Main Artist",
+                Duration.ofMinutes(3),
+                Optional.empty(), Optional.empty(), now,
+                Optional.of(1), Optional.of(1), Optional.of(320),
+                5000000L, "Rock", "mp3",
+                Optional.of(artists), Optional.of(albumArtists), moods
+        );
+
+        service.insert(song);
+
+        Optional<DBSong> found = service.getSongById("song-multi");
+        Assertions.assertThat(found).isPresent();
+        Assertions.assertThat(found.get().artists()).contains(artists);
+        Assertions.assertThat(found.get().albumArtists()).contains(albumArtists);
+        Assertions.assertThat(found.get().moods()).containsExactlyElementsOf(moods);
+
+        // Empty/missing values should round-trip as Optional.empty / List.of()
+        DBSong bare = new DBSong(
+                "song-bare", serverId, "album-1", "Album One", "Song Bare",
+                Optional.empty(), "a1", "Main Artist",
+                Duration.ofMinutes(2),
+                Optional.empty(), Optional.empty(), now,
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                0L, "", "",
+                Optional.empty(), Optional.empty(), List.of()
+        );
+        service.insert(bare);
+        Optional<DBSong> foundBare = service.getSongById("song-bare");
+        Assertions.assertThat(foundBare).isPresent();
+        Assertions.assertThat(foundBare.get().artists()).isEmpty();
+        Assertions.assertThat(foundBare.get().albumArtists()).isEmpty();
+        Assertions.assertThat(foundBare.get().moods()).isEmpty();
     }
 
     @Test

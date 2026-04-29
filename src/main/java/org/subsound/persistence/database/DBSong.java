@@ -1,10 +1,12 @@
 package org.subsound.persistence.database;
 
+import org.subsound.integration.ServerClient.ArtistId;
 import org.subsound.integration.ServerClient.CoverArt;
 import org.subsound.integration.ServerClient.SongInfo;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,7 +28,10 @@ public record DBSong(
         Optional<Integer> bitRate,
         long size,
         String genre,
-        String suffix
+        String suffix,
+        Optional<List<ArtistId>> artists,
+        Optional<List<ArtistId>> albumArtists,
+        List<String> moods
 ) {
     public static DBSong from(SongInfo songInfo, UUID serverId) {
         return new DBSong(
@@ -47,7 +52,10 @@ public record DBSong(
                 songInfo.bitRate(),
                 songInfo.size(),
                 songInfo.genre(),
-                songInfo.suffix()
+                songInfo.suffix(),
+                songInfo.artists(),
+                songInfo.albumArtists(),
+                songInfo.moods()
         );
     }
 }

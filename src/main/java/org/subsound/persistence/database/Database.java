@@ -122,6 +122,7 @@ public class Database {
         migrations.add(new MigrationV12());
         migrations.add(new MigrationV13());
         migrations.add(new MigrationV14());
+        migrations.add(new MigrationV15());
         return migrations;
     }
 
@@ -453,6 +454,20 @@ public class Database {
                         PRIMARY KEY (server_id, sort_order)
                     )
                 """);
+            }
+        }
+    }
+
+    static class MigrationV15 implements Migration {
+        @Override
+        public int version() { return 15; }
+
+        @Override
+        public void apply(Connection conn) throws SQLException {
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("ALTER TABLE songs ADD COLUMN artists_json TEXT");
+                stmt.execute("ALTER TABLE songs ADD COLUMN album_artists_json TEXT");
+                stmt.execute("ALTER TABLE songs ADD COLUMN moods_json TEXT");
             }
         }
     }
