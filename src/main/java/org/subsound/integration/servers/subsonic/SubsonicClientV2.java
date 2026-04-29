@@ -1025,11 +1025,11 @@ public class SubsonicClientV2 implements ServerClient {
     }
 
     @Override
-    public ScanStatus startScan() {
+    public ScanStatus startScan(boolean quickScan) {
         return switch (scanStatus()) {
             case ScanStatus.Scanning scanning -> scanning;
             case ScanStatus.NotScanning _ -> {
-                var res = fetchAndCheck("/rest/startScan", Map.of(), ScanStatusResponseJson.class);
+                var res = fetchAndCheck("/rest/startScan", Map.of("fullScan", Boolean.toString(!quickScan)), ScanStatusResponseJson.class);
                 var scan = res.subsonicResponse.scanStatus;
                 int count = scan.count() != null ? scan.count() : 0;
                 yield new ScanStatus.Scanning(count);

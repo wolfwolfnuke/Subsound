@@ -41,9 +41,7 @@ public class ServerBadge extends Box implements AppManager.StateListener {
     private final ActionRow serverRow;
     private final ActionRow statsRow;
     private final Label statusDot;
-    private final ActionRow triggerScanButton;
     private final SwitchRow offlineSwitch;
-    private final ActionRow syncButton;
     private final ActionRow configureServerButton;
     private final ActionRow logoutButton;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -69,24 +67,6 @@ public class ServerBadge extends Box implements AppManager.StateListener {
         this.setMarginBottom(8);
         this.setMarginStart(8);
         this.setMarginEnd(8);
-
-        this.triggerScanButton = ActionRow.builder()
-                .setTitle("Trigger scan")
-                .setTooltipText("Start server scan for new songs and folders")
-                .setActivatable(true)
-                .build();
-        var scanIcon = Image.fromIconName("emblem-synchronizing-symbolic");
-        scanIcon.setPixelSize(16);
-        scanIcon.setSizeRequest(32,-1);
-        scanIcon.setHalign(Align.CENTER);
-        scanIcon.setValign(Align.CENTER);
-        triggerScanButton.addPrefix(scanIcon);
-        triggerScanButton.addCssClass(Classes.flat.className());
-        triggerScanButton.addCssClass(Classes.heading.className());
-        triggerScanButton.onActivated(() -> {
-            onClose.run();
-            appManager.handleAction(new PlayerAction.TriggerServerScan());
-        });
 
         var aboutButton = ActionRow.builder()
                 .setTitle("About")
@@ -145,28 +125,6 @@ public class ServerBadge extends Box implements AppManager.StateListener {
             }
         });
 
-        // Sync library action
-        this.syncButton = ActionRow.builder()
-                .setTitle("Sync library")
-                .setActivatable(true)
-                .setTooltipText("Syncs metadata for offline use")
-                .build();
-        this.syncButton.addCssClass(Classes.flat.className());
-        this.syncButton.addCssClass(Classes.heading.className());
-        var syncIcon = Image.fromIconName("view-refresh-symbolic");
-        syncIcon.setPixelSize(16);
-        syncIcon.setSizeRequest(32,-1);
-        syncIcon.setHalign(Align.CENTER);
-        syncIcon.setValign(Align.CENTER);
-        syncButton.addPrefix(syncIcon);
-        this.syncButton.onActivated(() -> {
-            onClose.run();
-            syncButton.setSensitive(false);
-            appManager.handleAction(new PlayerAction.SyncDatabase()).whenComplete((v, err) ->
-                    Utils.runOnMainThread(() -> syncButton.setSensitive(currentNetworkStatus != NetworkStatus.OFFLINE))
-            );
-        });
-
         this.configureServerButton = ActionRow.builder()
                 .setTitle("Configure server")
                 .setActivatable(true)
@@ -221,8 +179,6 @@ public class ServerBadge extends Box implements AppManager.StateListener {
         list.append(serverRow);
         list.append(statsRow);
         list.append(offlineSwitch);
-        list.append(triggerScanButton);
-        list.append(syncButton);
         list.append(configureServerButton);
         list.append(aboutButton);
         list.append(logoutButton);
@@ -364,15 +320,6 @@ public class ServerBadge extends Box implements AppManager.StateListener {
         try {
             boolean offline = networkState.status() == NetworkStatus.OFFLINE;
             offlineSwitch.setActive(offline);
-            if (offline) {
-                triggerScanButton.setSensitive(false);
-                syncButton.setSensitive(false);
-                syncButton.setTooltipText("Must be online to sync library");
-            } else {
-                triggerScanButton.setSensitive(true);
-                syncButton.setSensitive(true);
-                syncButton.setTooltipText("Sync library to enable offline mode");
-            }
         } finally {
             updatingSwitch.set(false);
         }

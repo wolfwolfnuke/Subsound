@@ -7,10 +7,12 @@ import org.gnome.adw.ComboRow;
 import org.gnome.adw.PreferencesGroup;
 import org.gnome.gtk.Align;
 import org.gnome.gtk.Box;
+import org.gnome.gtk.Image;
 import org.gnome.gtk.StringList;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.subsound.app.state.AppManager;
+import org.subsound.app.state.NetworkMonitoring.NetworkStatus;
 import org.subsound.app.state.PlayerAction;
 import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.TranscodeBitrate.MaximumBitrate;
@@ -43,6 +45,16 @@ public class SettingsPage extends Box {
     private final PreferencesGroup transcodeSettings;
     private final ComboRow audioFormatCombo;
     private final ComboRow audioBitrateCombo;
+    private final PreferencesGroup serverLibrary;
+    private final ButtonRow librarySyncRow;
+    private final ButtonRow libraryQuickScanRow;
+    private final ActionRow libraryLastScanAtRow;
+    private final ActionRow librarySongsRow;
+    private final ActionRow libraryScanStatus;
+    private final PreferencesGroup syncGroup;
+    private final ActionRow localSongsRow;
+    private final ButtonRow localSongsTriggerSync;
+    private final AppManager.StateListener networkStateListener;
     private final Box centerBox;
 
     public SettingsPage(
@@ -64,7 +76,7 @@ public class SettingsPage extends Box {
         this.clearThumbnailCacheButton.onActivated(() -> appManager.handleAction(new PlayerAction.ClearThumbnailCache()));
 
         this.localSettings = new PreferencesGroup();
-        this.localSettings.setTitle("Local settings");
+        this.localSettings.setTitle("Local Settings");
         this.localSettings.setSeparateRows(false);
         this.localSettings.add(clearSongCacheButton);
         this.localSettings.add(clearThumbnailCacheButton);
@@ -139,10 +151,76 @@ public class SettingsPage extends Box {
         this.serverInformation.add(serverOpenSubsonic);
 
         this.transcodeSettings = new PreferencesGroup();
-        this.transcodeSettings.setTitle("Transcode settings");
+        this.transcodeSettings.setTitle("Transcode Settings");
         this.transcodeSettings.setSeparateRows(false);
         this.transcodeSettings.add(audioFormatCombo);
         this.transcodeSettings.add(audioBitrateCombo);
+
+        this.librarySyncRow = ButtonRow.builder()
+                .setTitle("Full scan")
+                .setActivatable(true)
+                .setTooltipText("Start server scan for new songs and folders")
+                .build();
+        this.librarySyncRow.setStartIconName(Icons.Search.getIconName());
+        this.librarySyncRow.onActivated(() ->
+                this.appManager.handleAction(new PlayerAction.TriggerServerScan(false))
+        );
+
+        this.libraryQuickScanRow = ButtonRow.builder()
+                .setTitle("Quick scan")
+                .setActivatable(true)
+                .setTooltipText("Start server quick scan for new songs and folders")
+                .build();
+        this.libraryQuickScanRow.setStartIconName(Icons.RefreshView.getIconName());
+        this.libraryQuickScanRow.onActivated(() ->
+                this.appManager.handleAction(new PlayerAction.TriggerServerScan(true))
+        );
+
+        this.libraryLastScanAtRow = newRow("Last Scanned at");
+        this.libraryScanStatus = newRow("Status");
+        this.librarySongsRow = newRow("Server songs");
+        this.librarySongsRow.setSubtitle("…");
+        this.serverLibrary = new PreferencesGroup();
+        this.serverLibrary.setTitle("Library");
+        this.serverLibrary.setSeparateRows(false);
+        this.serverLibrary.add(libraryScanStatus);
+        this.serverLibrary.add(librarySongsRow);
+        this.serverLibrary.add(libraryQuickScanRow);
+        this.serverLibrary.add(librarySyncRow);
+
+        this.localSongsRow = newRow("Local songs");
+        this.localSongsRow.setSubtitle("…");
+
+        this.localSongsTriggerSync = ButtonRow.builder()
+                .setTitle("Sync library")
+                .setActivatable(true)
+                .setTooltipText("Syncs metadata for offline use")
+                .build();
+        this.localSongsTriggerSync.setStartIconName(Icons.FolderDownload.getIconName());
+        this.localSongsTriggerSync.onActivated(() -> {
+            this.localSongsTriggerSync.setSensitive(false);
+            this.appManager.handleAction(new PlayerAction.SyncDatabase()).whenComplete((v, err) ->
+                    Utils.runOnMainThread(() -> {
+                        boolean offline = this.appManager.getState().networkState().status() == NetworkStatus.OFFLINE;
+                        this.localSongsTriggerSync.setSensitive(!offline);
+                        this.refreshLocalCount();
+                    })
+            );
+        });
+
+        this.syncGroup = new PreferencesGroup();
+        this.syncGroup.setTitle("Local Library");
+        this.syncGroup.setSeparateRows(false);
+        this.syncGroup.add(localSongsRow);
+        this.syncGroup.add(localSongsTriggerSync);
+
+        applyNetworkSensitivity(this.appManager.getState().networkState().status());
+        this.networkStateListener = state -> {
+            var status = state.networkState().status();
+            Utils.runOnMainThread(() -> applyNetworkSensitivity(status));
+        };
+        this.appManager.addOnStateChanged(this.networkStateListener);
+        this.onDestroy(() -> this.appManager.removeOnStateChanged(this.networkStateListener));
 
         this.form = new ServerConfigForm(
                 settingsInfo,
@@ -153,6 +231,8 @@ public class SettingsPage extends Box {
         this.centerBox = borderBox(VERTICAL, 8).setSpacing(8).build();
         this.centerBox.append(this.form);
         this.centerBox.append(this.serverInformation);
+        this.centerBox.append(this.serverLibrary);
+        this.centerBox.append(this.syncGroup);
         this.centerBox.append(this.transcodeSettings);
         this.centerBox.append(this.localSettings);
 
@@ -161,6 +241,7 @@ public class SettingsPage extends Box {
         clamp.setChild(this.centerBox);
         this.append(clamp);
         this.refresh();
+        this.refreshLocalCount();
     }
 
     private void refresh() {
@@ -168,13 +249,41 @@ public class SettingsPage extends Box {
                 .thenAccept(serverInfo -> this.update(serverInfo));
     }
 
+    private void refreshLocalCount() {
+        Utils.doAsync(this.appManager::getLocalSongCount).thenAccept(count ->
+                Utils.runOnMainThread(() -> this.localSongsRow.setSubtitle("%,d".formatted(count)))
+        );
+    }
+
     private void update(ServerClient.ServerInfo serverInfo) {
         Utils.runOnMainThread(() -> {
+            boolean isNavidrome = serverInfo.serverType().map(type -> type.toLowerCase().contains("navidrome")).orElse(false);
             this.serverTypeLabel.setSubtitle(serverInfo.serverType().orElse("Unknown"));
             this.serverVersionLabel.setSubtitle(serverInfo.serverVersion().orElse("Unknown"));
             this.apiVersionLabel.setSubtitle(serverInfo.apiVersion());
             this.serverOpenSubsonic.setSubtitle(serverInfo.isOpenSubsonic() ? "Yes" : "No");
+            this.librarySongsRow.setSubtitle("%,d".formatted(serverInfo.songCount()));
+            this.libraryQuickScanRow.setSensitive(isNavidrome);
+            serverInfo.lastScan().ifPresent(then -> {
+                this.libraryLastScanAtRow.setSubtitle(then.toString());
+            });
+            this.libraryLastScanAtRow.setVisible(serverInfo.lastScan().isPresent());
         });
+    }
+
+    private void applyNetworkSensitivity(NetworkStatus status) {
+        boolean offline = status == NetworkStatus.OFFLINE;
+        this.localSongsTriggerSync.setSensitive(!offline);
+        this.librarySyncRow.setSensitive(!offline);
+    }
+
+    private static Image buildIcon(String iconName) {
+        var icon = Image.fromIconName(iconName);
+        icon.setPixelSize(16);
+        icon.setSizeRequest(32, -1);
+        icon.setHalign(Align.CENTER);
+        icon.setValign(Align.CENTER);
+        return icon;
     }
 
     static ActionRow newRow(String title) {

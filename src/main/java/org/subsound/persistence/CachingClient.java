@@ -414,8 +414,8 @@ public class CachingClient implements ServerClient {
     }
 
     @Override
-    public ScanStatus startScan() {
-        return delegate.startScan();
+    public ScanStatus startScan(boolean quickScan) {
+        return delegate.startScan(quickScan);
     }
 
     @Override

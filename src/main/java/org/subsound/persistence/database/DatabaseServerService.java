@@ -410,6 +410,23 @@ public class DatabaseServerService {
         }
     }
 
+    public long getSongCount() {
+        String sql = "SELECT COUNT(*) FROM songs WHERE server_id = ?";
+        try (Connection conn = database.openConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, this.serverId.toString());
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getLong(1);
+                }
+                return 0L;
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to count songs for server: {}", serverId, e);
+            throw new RuntimeException("Failed to count songs", e);
+        }
+    }
+
     public List<DBSong> listSongsByAlbumId(String albumId) {
         List<DBSong> songs = new ArrayList<>();
         String sql = "SELECT * FROM songs WHERE server_id = ? AND album_id = ? ORDER BY disc_number, track_number";

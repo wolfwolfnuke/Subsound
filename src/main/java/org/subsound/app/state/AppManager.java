@@ -411,6 +411,10 @@ public class AppManager {
         return this.downloadManager.getDownloadCounts();
     }
 
+    public long getLocalSongCount() {
+        return dbService.getSongCount();
+    }
+
     public java.util.List<DownloadQueueItem> getDownloadQueue() {
         return dbService.listDownloadQueue(java.util.List.of(
                 DownloadStatus.COMPLETED,
@@ -904,8 +908,8 @@ public class AppManager {
                     this.thumbnailCache.clearThumbnails(SERVER_ID);
                     this.toast(new PlayerAction.Toast(new org.gnome.adw.Toast("Thumbnail cache cleared")));
                 }
-                case PlayerAction.TriggerServerScan triggerServerScan -> {
-                    Utils.doAsync(() -> this.useClient(ServerClient::startScan))
+                case PlayerAction.TriggerServerScan arg -> {
+                    Utils.doAsync(() -> this.useClient(c -> c.startScan(arg.quickScan())))
                             .thenApply(status -> {
                                 this.toast(new PlayerAction.Toast(new org.gnome.adw.Toast("Started server scan")));
                                 return status;

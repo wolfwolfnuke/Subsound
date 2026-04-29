@@ -44,7 +44,7 @@ public interface ServerClient {
     StreamResponse openStream(TranscodeInfo transcodeInfo);
     CoverArtResponse downloadCoverArt(CoverArt coverArt, int maxSize);
     ScanStatus scanStatus();
-    ScanStatus startScan();
+    ScanStatus startScan(boolean quickScan);
 
     sealed interface ScanStatus {
         record Scanning(long count) implements ScanStatus {}
