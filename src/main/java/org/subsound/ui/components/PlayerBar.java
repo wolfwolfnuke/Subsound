@@ -1,5 +1,6 @@
 package org.subsound.ui.components;
 
+import org.gnome.adw.Clamp;
 import org.gnome.glib.GLib;
 import org.gnome.gtk.ActionBar;
 import org.gnome.gtk.Align;
@@ -38,6 +39,8 @@ import static org.subsound.utils.Utils.withinEpsilon;
 public class PlayerBar extends Box implements AppManager.StateListener {
     private final Logger log = LoggerFactory.getLogger(PlayerBar.class);
     private static final int ARTWORK_SIZE = 64;
+    private static final int NOW_PLAYING_TEXT_WIDTH = 280;
+    private static final int MIN_SCRUBBER_WIDTH = 320;
 
     private final AppManager appManager;
 
@@ -132,12 +135,18 @@ public class PlayerBar extends Box implements AppManager.StateListener {
                 }
         );
         this.starButton.setSensitive(false);
+        // songInfoBox is the fixed-width slot reserved for the now-playing text + star.
+        // Keeping its width constant prevents long titles from pushing the centered scrubber.
+        // Internally, a vertical text stack sits next to a vcentered star button so the star
+        // stays close to the text regardless of title length.
         songInfoBox = Box.builder()
-                .setOrientation(Orientation.VERTICAL)
-                .setSpacing(2)
+                .setOrientation(Orientation.HORIZONTAL)
+                .setSpacing(6)
                 .setHalign(Align.START)
                 .setValign(Align.CENTER)
                 .setVexpand(true)
+                .setHexpand(false)
+                .setWidthRequest(NOW_PLAYING_TEXT_WIDTH)
                 .setMarginStart(8)
                 .build();
 
@@ -152,6 +161,8 @@ public class PlayerBar extends Box implements AppManager.StateListener {
             });
         });
         songTitle.setHalign(Align.START);
+        songTitle.setXalign(0.0f);
+        songTitle.setHexpand(false);
         songTitle.setMaxWidthChars(30);
         songTitle.setEllipsize(EllipsizeMode.MIDDLE);
         songTitle.addCssClass(Classes.heading.className());
@@ -166,11 +177,22 @@ public class PlayerBar extends Box implements AppManager.StateListener {
             });
         });
         artistTitle.setHalign(Align.START);
+        artistTitle.setXalign(0.0f);
+        artistTitle.setHexpand(false);
         artistTitle.setMaxWidthChars(25);
         artistTitle.setEllipsize(EllipsizeMode.MIDDLE);
         artistTitle.addCssClass(Classes.labelDim.className());
-        songInfoBox.append(songTitle);
-        songInfoBox.append(artistTitle);
+        var textStack = Box.builder()
+                .setOrientation(Orientation.VERTICAL)
+                .setSpacing(2)
+                .setHalign(Align.START)
+                .setValign(Align.CENTER)
+                .build();
+        textStack.append(songTitle);
+        textStack.append(artistTitle);
+        this.starButton.setValign(Align.CENTER);
+        songInfoBox.append(textStack);
+        songInfoBox.append(this.starButton);
 
         this.albumArtBox = Box.builder()
                 .setOrientation(Orientation.VERTICAL)
@@ -185,12 +207,20 @@ public class PlayerBar extends Box implements AppManager.StateListener {
 
         Box nowPlaying = Box.builder()
                 .setOrientation(Orientation.HORIZONTAL)
+                .setHexpand(false)
                 .build();
         nowPlaying.append(albumArtBox);
-        nowPlaying.append(songInfoBox);
-        var starredButtonBox = Box.builder().setMarginStart(6).setMarginEnd(6).setVexpand(true).setValign(Align.CENTER).build();
-        starredButtonBox.append(this.starButton);
-        nowPlaying.append(starredButtonBox);
+        // Clamp is the only Adwaita widget that enforces a hard *max* allocation on its child.
+        // Setting maximumSize == tighteningThreshold makes it behave as a strict max-width box
+        // (no scaling band), so labels ellipsize instead of widening the slot.
+        var songInfoClamp = Clamp.builder()
+                .setMaximumSize(NOW_PLAYING_TEXT_WIDTH)
+                .setTighteningThreshold(NOW_PLAYING_TEXT_WIDTH)
+                .setHexpand(false)
+                .setHalign(Align.START)
+                .setChild(songInfoBox)
+                .build();
+        nowPlaying.append(songInfoClamp);
 
         volumeButton = new VolumeButton(this.currentState.get().player().muted(), PlaybinPlayer.toVolumeCubic(this.currentState.get().player().volume()));
         volumeButton.onClicked(() -> {
@@ -285,6 +315,9 @@ public class PlayerBar extends Box implements AppManager.StateListener {
         playPauseButton.onClicked(this::playPause);
         updatePlayingState(toPlayingState(appManager.getState().player().state()));
         playerScrubber = new PlayerScrubberV2(this.appManager::seekTo);
+        playerScrubber.setSizeRequest(MIN_SCRUBBER_WIDTH, -1);
+        playerScrubber.setHexpand(false);
+        playerScrubber.setHalign(Align.CENTER);
 
         var playerControls = Box.builder()
                 .setSpacing(2)
@@ -299,7 +332,7 @@ public class PlayerBar extends Box implements AppManager.StateListener {
         playerControls.append(skipForwardButton);
         playerControls.append(repeatModeButton);
 
-        Box centerWidget = Box.builder().setOrientation(Orientation.VERTICAL).setSpacing(2).build();
+        Box centerWidget = Box.builder().setOrientation(Orientation.VERTICAL).setSpacing(2).setHexpand(true).build();
         centerWidget.append(playerControls);
         centerWidget.append(playerScrubber);
 
