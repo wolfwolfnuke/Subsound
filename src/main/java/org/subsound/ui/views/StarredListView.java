@@ -261,7 +261,7 @@ public class StarredListView extends Box implements AppManager.StateListener {
         var npSong = state.nowPlaying().map(AppManager.NowPlaying::song);
         var nowPlayingState = getNowPlayingState(state.player().state());
         if (prev == null) {
-            return new MiniState(npSong, nowPlayingState, state.queue().playContext(), state.queue().position());
+            return new MiniState(npSong, nowPlayingState, state.queue().playContext(), state.queue().position(), state.queue().playingItemId());
         }
         var pos = state.queue().position();
         if (prev.songInfo() == npSong && prev.nowPlayingState() == nowPlayingState && prev.position() == pos) {
@@ -273,11 +273,11 @@ public class StarredListView extends Box implements AppManager.StateListener {
                 if (prev.nowPlayingState() == nowPlayingState) {
                     return prev;
                 } else {
-                    return new MiniState(npSong, nowPlayingState, playContext, pos);
+                    return new MiniState(npSong, nowPlayingState, playContext, pos, state.queue().playingItemId());
                 }
             }
         }
-        return new MiniState(npSong, nowPlayingState, playContext, pos);
+        return new MiniState(npSong, nowPlayingState, playContext, pos, state.queue().playingItemId());
     }
 
     private NowPlayingState getNowPlayingState(PlaybinPlayer.PlayerStates state) {

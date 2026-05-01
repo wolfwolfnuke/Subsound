@@ -65,10 +65,10 @@ import org.subsound.utils.Utils;
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -109,8 +109,13 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     private final SingleSelection<GPlaylistEntry> selectionModel;
     private final SearchBar searchBar;
     private final SearchEntry searchEntry;
-    private final ConcurrentHashMap<String, List<NowPlayingCell>> listeners = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, List<TitleArtistCell>> listenersTitle = new ConcurrentHashMap<>();
+    // Bound cells indexed by queueItemId (unique per entry: playlistId||songId||position).
+    // ListView only ever has one cell bound to a given entry at a time, so values are scalar.
+    // All access happens on the GTK main thread.
+    // The hashmaps work as a cache for updating now-playing items instead of having every cell connect twice for
+    // playing status updates that only touch 2 cells (prev and next item)
+    private final HashMap<String, NowPlayingCell> nowPlayingByQueueId = new HashMap<>();
+    private final HashMap<String, TitleArtistCell> titleByQueueId = new HashMap<>();
     private final AtomicReference<ServerClient.PlaylistSimple> currentPlaylist = new AtomicReference<>();
     private volatile boolean reloadNeeded = false;
     private volatile int lastKnownSongCount = 0;
@@ -266,8 +271,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             if (child instanceof NowPlayingCell cell) {
                 var playingItemId = appManager.getState().queue().playingItemId();
                 cell.bind(entry, listItem, prevState.get(), playingItemId);
-                var list = listeners.computeIfAbsent(entry.gSong.getId(), key -> new ArrayList<>());
-                list.add(cell);
+                nowPlayingByQueueId.put(entry.getQueueItemId(), cell);
             }
         });
         nowPlayingFactory.onUnbind(obj -> {
@@ -275,11 +279,10 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             var entry = (GPlaylistEntry) listItem.getItem();
             var child = listItem.getChild();
             if (child instanceof NowPlayingCell cell) {
-                cell.unbind();
                 if (entry != null) {
-                    var list = listeners.get(entry.gSong.getId());
-                    if (list != null) list.remove(cell);
+                    nowPlayingByQueueId.remove(entry.getQueueItemId(), cell);
                 }
+                cell.unbind();
             }
         });
         nowPlayingFactory.onTeardown(obj -> {
@@ -313,8 +316,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             if (child instanceof TitleArtistCell cell) {
                 var playingItemId = appManager.getState().queue().playingItemId();
                 cell.bind(entry, listItem, playingItemId);
-                var list = listenersTitle.computeIfAbsent(entry.gSong.getId(), key -> new ArrayList<>());
-                list.add(cell);
+                titleByQueueId.put(entry.getQueueItemId(), cell);
             }
         });
         titleFactory.onUnbind(obj -> {
@@ -322,11 +324,10 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             var entry = (GPlaylistEntry) listItem.getItem();
             var child = listItem.getChild();
             if (child instanceof TitleArtistCell cell) {
-                cell.unbind();
                 if (entry != null) {
-                    var list = listenersTitle.get(entry.gSong.getId());
-                    if (list != null) list.remove(cell);
+                    titleByQueueId.remove(entry.getQueueItemId(), cell);
                 }
+                cell.unbind();
             }
         });
         titleFactory.onTeardown(obj -> {
@@ -769,78 +770,63 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         if (!songOrPosChanged && !stateChanged) {
             return;
         }
+        var prevPlayingItemId = prev.playingItemId();
         Utils.runOnMainThread(() -> {
+            // Clear the previously-playing row when the queue's playing slot changed.
             if (songOrPosChanged) {
-                var from = this.listeners.get(prevSongId);
-                if (from != null) {
-                    for (var l : from) {
-                        l.updateCellIsPlaying(false, NowPlayingState.NONE);
+                prevPlayingItemId.ifPresent(qid -> {
+                    var prevNow = nowPlayingByQueueId.get(qid);
+                    if (prevNow != null) {
+                        prevNow.updateCellIsPlaying(false, NowPlayingState.NONE);
                     }
-                }
-                var to = this.listeners.get(nextSongId);
-                if (to != null) {
-                    for (var l : to) {
-                        var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
-                        boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
-                        l.updateCellIsPlaying(isPlaying, playingState);
+                    var prevTitle = titleByQueueId.get(qid);
+                    if (prevTitle != null) {
+                        prevTitle.updateRow(false);
                     }
-                }
-                var from1 = this.listenersTitle.get(prevSongId);
-                if (from1 != null) {
-                    for (var l : from1) {
-                        l.updateRow(false);
-                    }
-                }
-                var to1 = this.listenersTitle.get(nextSongId);
-                if (to1 != null) {
-                    for (var l : to1) {
-                        var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
-                        boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
-                        l.updateRow(isPlaying);
-                    }
-                }
+                });
             }
-            if (stateChanged) {
-                var to = this.listeners.get(nextSongId);
-                if (to != null) {
-                    for (var l : to) {
-                        var qid = l.boundEntry != null ? l.boundEntry.getQueueItemId() : null;
-                        boolean isPlaying = isPlayingEntry(qid, playingItemId, nextSongId);
-                        l.updateCellIsPlaying(isPlaying, playingState);
+            // Apply the new playing state to the now-current row.
+            playingItemId.ifPresent(qid -> {
+                var nowCell = nowPlayingByQueueId.get(qid);
+                if (nowCell != null) {
+                    nowCell.updateCellIsPlaying(true, playingState);
+                }
+                if (songOrPosChanged) {
+                    var titleCell = titleByQueueId.get(qid);
+                    if (titleCell != null) {
+                        titleCell.updateRow(true);
                     }
                 }
-            }
+            });
         });
-    }
-
-    private boolean isPlayingEntry(String entryQueueId, Optional<String> playingItemId, String nextSongId) {
-        if (entryQueueId != null) {
-            return playingItemId.map(entryQueueId::equals).orElse(false);
-        }
-        return false;
     }
 
     public record MiniState(
             Optional<SongInfo> songInfo,
             NowPlayingState nowPlayingState,
             Optional<ObjectIdentifier> playContext,
-            Optional<Integer> position
+            Optional<Integer> position,
+            Optional<String> playingItemId
     ){}
 
     private MiniState selectState(@Nullable MiniState prev, AppManager.AppState state) {
         var npSong = state.nowPlaying().map(AppManager.NowPlaying::song);
         var nowPlayingState = getNowPlayingState(state.player().state());
+        var playingItemId = state.queue().playingItemId();
         if (prev == null) {
-            return new MiniState(npSong, nowPlayingState, state.queue().playContext(), state.queue().position());
+            return new MiniState(npSong, nowPlayingState, state.queue().playContext(), state.queue().position(), playingItemId);
         }
         var prevSongId = prev.songInfo().map(SongInfo::id).orElse("");
         var nextSongId = npSong.map(SongInfo::id).orElse("");
         var playContext = state.queue().playContext();
         var pos = state.queue().position();
-        if (prevSongId.equals(nextSongId) && prev.nowPlayingState() == nowPlayingState && prev.position() == pos) {
+        if (prevSongId.equals(nextSongId)
+            && prev.nowPlayingState() == nowPlayingState
+            && prev.position() == pos
+            && prev.playingItemId().equals(playingItemId)) {
             return prev;
         }
-        return new MiniState(npSong, nowPlayingState, playContext, pos);
+        return new MiniState(npSong, nowPlayingState, playContext, pos, playingItemId);
     }
 
     private NowPlayingState getNowPlayingState(PlaybinPlayer.PlayerStates state) {
