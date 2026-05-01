@@ -32,7 +32,7 @@ dependencies {
     implementation 'com.zaxxer:HikariCP:7.0.2'
     implementation 'com.google.code.gson:gson:2.13.2'
     implementation 'de.androidpit:color-thief:1.1.2'
-    implementation 'io.reactivex.rxjava3:rxjava:3.1.10'
+    implementation 'io.reactivex.rxjava3:rxjava:3.1.12'
     implementation 'com.github.akarnokd:rxjava3-fiber-interop:0.0.18'
     compileOnly 'com.github.akarnokd:rxjava3-jdk9-interop:3.0.1'
     implementation 'com.softwaremill.jox:channels:1.1.2'
