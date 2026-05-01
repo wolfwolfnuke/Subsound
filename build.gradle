@@ -30,7 +30,7 @@ dependencies {
     implementation "com.github.ben-manes.caffeine:caffeine:3.2.3"
     implementation 'com.squareup.okhttp3:okhttp:5.3.2'
     implementation 'com.zaxxer:HikariCP:7.0.2'
-    implementation 'com.google.code.gson:gson:2.13.2'
+    implementation 'com.google.code.gson:gson:2.14.0'
     implementation 'de.androidpit:color-thief:1.1.2'
     implementation 'io.reactivex.rxjava3:rxjava:3.1.10'
     implementation 'com.github.akarnokd:rxjava3-fiber-interop:0.0.18'
