@@ -806,24 +806,24 @@
   },
   {
     "type": "file",
-    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava3/rxjava/3.1.10/rxjava-3.1.10.jar",
-    "sha512": "c495dfd8e4dc51d34d221c80245fd61b56e9a6a6f104d15edb5a39a14a6e947a85f5f9d156aa658ebd1451018cdba10ab0fdfb9214a18423ccb29458f4fed512",
-    "dest": "./offline-repository/io/reactivex/rxjava3/rxjava/3.1.10",
-    "dest-filename": "rxjava-3.1.10.jar"
+    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava3/rxjava/3.1.12/rxjava-3.1.12.jar",
+    "sha512": "6dfd85dee70c88101e79e1e323190342972c66fdd7aa340c602a8e9405bb16a366fe9846b979390b210b172940924899833d149d31b5d9b687c3d022f2c4aa44",
+    "dest": "./offline-repository/io/reactivex/rxjava3/rxjava/3.1.12",
+    "dest-filename": "rxjava-3.1.12.jar"
   },
   {
     "type": "file",
-    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava3/rxjava/3.1.10/rxjava-3.1.10.module",
-    "sha512": "86cea127d1ad20c63f896aff96c4b25298d6a7abadbfe80064332ca138cd694ff81eca4b75fd571730ea21e0f606630f5a41ddc591d4ea4b86aff43e4570b6e2",
-    "dest": "./offline-repository/io/reactivex/rxjava3/rxjava/3.1.10",
-    "dest-filename": "rxjava-3.1.10.module"
+    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava3/rxjava/3.1.12/rxjava-3.1.12.module",
+    "sha512": "eab68a15ddcba35161aa65e5129bec5fbf31b303b77c0292073252204766b52777b16289de256b6602b3a9338789960d5b1e590c1a28042ef824ab7148feaa0e",
+    "dest": "./offline-repository/io/reactivex/rxjava3/rxjava/3.1.12",
+    "dest-filename": "rxjava-3.1.12.module"
   },
   {
     "type": "file",
-    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava3/rxjava/3.1.10/rxjava-3.1.10.pom",
-    "sha512": "16be8f6f979598257c5fb29a620fd6b16e106e84a0012cfc8cb131979b4f8645bad13fb9fe6d5029bd35f410a8a517a2a6509fbb10f3aa15531eeca92c434600",
-    "dest": "./offline-repository/io/reactivex/rxjava3/rxjava/3.1.10",
-    "dest-filename": "rxjava-3.1.10.pom"
+    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava3/rxjava/3.1.12/rxjava-3.1.12.pom",
+    "sha512": "532ed69404e89dad524819c8d5d120a94962816bb92391915cb201fcc492ef5822c6868279da397b5ce88e80b903edc6ee731c717035360f966318dfb04f67c9",
+    "dest": "./offline-repository/io/reactivex/rxjava3/rxjava/3.1.12",
+    "dest-filename": "rxjava-3.1.12.pom"
   },
   {
     "type": "file",
