@@ -53,6 +53,7 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
 import static java.util.Optional.ofNullable;
 import static org.subsound.app.state.AppManager.SERVER_ID;
 import static org.subsound.integration.servers.subsonic.SubsonicClientV2.OpenSubsonicExtensions.OpenSubsonicFeature.FormPost;
+import static org.subsound.integration.servers.subsonic.SubsonicClientV2.OpenSubsonicExtensions.OpenSubsonicFeature.PlaybackReport;
 import static org.subsound.integration.servers.subsonic.SubsonicClientV2.OpenSubsonicExtensions.OpenSubsonicFeature.SongLyrics;
 import static org.subsound.persistence.ThumbnailCache.toCachePath;
 import static org.subsound.utils.LogUtils.loggingInterceptor;
@@ -135,9 +136,16 @@ public class SubsonicClientV2 implements ServerClient {
             return extOpt.get().supports(FormPost);
         }
     }
-        public boolean isLyricsSupported() {
+
+    public boolean isLyricsSupported() {
         return this.supportedExtensions.get()
                 .map(exts -> exts.supports(SongLyrics))
+                .orElse(false);
+    }
+
+    public boolean isFeatureSupported(OpenSubsonicExtensions.OpenSubsonicFeature feature) {
+        return this.supportedExtensions.get()
+                .map(exts -> exts.supports(feature))
                 .orElse(false);
     }
 
@@ -772,11 +780,37 @@ public class SubsonicClientV2 implements ServerClient {
         if (songId.isBlank()) {
             return;
         }
-        fetchVoid("/rest/scrobble", Map.of(
-                "id", songId,
-                "time", String.valueOf(req.startedAt().toEpochMilli()),
-                "submission", "false"
-        ));
+
+        if (this.isFeatureSupported(PlaybackReport)) {
+            // Valid Playback states: 'starting', 'playing', 'paused', 'stopped'.
+            var playbackState = switch (req.playerState()) {
+                case PLAYING -> "playing";
+                case PAUSED -> "paused";
+                case STOPPED -> "stopped";
+            };
+
+            var positionMs = req.positionMs();
+            // while playing, we must move the position by the time elapsed since the positionAnchorAt point:
+            if (req.playerState() == ReportNowPlaying.PlayerState.PLAYING && req.positionAnchorAt().isPresent()) {
+                var now = Instant.now();
+                positionMs = (now.toEpochMilli() - req.positionAnchorAt().get().toEpochMilli());
+            }
+            fetchVoid("/rest/reportPlayback", Map.of(
+                    "mediaId", songId,
+                    "mediaType", "song",
+                    "state", playbackState,
+                    "positionMs", String.valueOf(positionMs),
+                    "ignoreScrobbling", "true"
+            ));
+        } else {
+            // old subsonic way of reporting now playing state, with submission = false:
+            var timeMs = req.startedAt().orElseGet(Instant::now).toEpochMilli();
+            fetchVoid("/rest/scrobble", Map.of(
+                    "id", songId,
+                    "time", String.valueOf(timeMs),
+                    "submission", "false"
+            ));
+        }
     }
 
     @Override
@@ -1062,6 +1096,7 @@ public class SubsonicClientV2 implements ServerClient {
             IndexBasedQueue("indexBasedQueue"),
             Transcode("transcode"),
             TranscodeOffset("transcodeOffset"),
+            PlaybackReport("playbackReport"),
             ;
             private final String value;
             OpenSubsonicFeature(String value) {

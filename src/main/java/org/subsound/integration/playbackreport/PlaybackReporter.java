@@ -8,7 +8,7 @@ import org.subsound.integration.ServerClient.ReportNowPlaying;
 import org.subsound.integration.ServerClient.ReportNowPlaying.PlayerState;
 import org.subsound.sound.PlaybinPlayer;
 
-import java.time.Instant;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -69,9 +69,12 @@ public class PlaybackReporter implements AppManager.StateListener, AutoCloseable
         var nowPlaying = state.nowPlaying().orElse(null);
         var songId = nowPlaying == null ? Optional.<String>empty() : Optional.ofNullable(nowPlaying.song().id());
         var player = state.player();
+        var pos = state.player().source().flatMap(s -> s.position()).orElse(Duration.ZERO);
         return new ReportNowPlaying(
                 songId,
-                player.playbackStartedAt().orElse(Instant.now()),
+                player.playbackStartedAt(),
+                player.positionAnchorAt(),
+                pos.toMillis(),
                 toPlaybackState(player.state())
         );
     }

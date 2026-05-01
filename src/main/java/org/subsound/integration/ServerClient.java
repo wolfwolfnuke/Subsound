@@ -51,7 +51,13 @@ public interface ServerClient {
         record NotScanning() implements ScanStatus {}
     }
 
-    record ReportNowPlaying(Optional<String> songId, Instant startedAt, PlayerState playerState) {
+    record ReportNowPlaying(
+            Optional<String> songId,
+            Optional<Instant> startedAt,
+            Optional<Instant> positionAnchorAt,
+            long positionMs,
+            PlayerState playerState
+    ) {
         public enum PlayerState{ PLAYING, PAUSED, STOPPED }
     }
     record ScrobbleRequest(String songId, Instant playedAt) {}
