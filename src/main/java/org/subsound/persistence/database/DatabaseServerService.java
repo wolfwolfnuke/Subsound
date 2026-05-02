@@ -39,6 +39,10 @@ public class DatabaseServerService {
         this.database = database;
     }
 
+    public UUID getServerId() {
+        return serverId;
+    }
+
     public void insert(Album album) {
         String sql = """
                 INSERT OR REPLACE INTO albums (id, server_id, artist_id, name, song_count, year, artist_name, duration_ms, starred_at_ms, cover_art_id, added_at_ms, genre)
@@ -1071,6 +1075,36 @@ public class DatabaseServerService {
         } catch (SQLException e) {
             logger.error("Failed to update download progress for song: {}", songId, e);
             throw new RuntimeException("Failed to update download progress", e);
+        }
+    }
+
+    /**
+     * Refresh the transcode-related columns of a download_queue row. Used when
+     * the live transcode policy has changed and we want a still-pending row to
+     * be re-downloaded in the new format.
+     */
+    public void updateDownloadTranscodeInfo(String songId, ServerClient.TranscodeInfo info) {
+        String sql = """
+                UPDATE download_queue
+                SET stream_format = ?, estimated_bitrate = ?, original_bitrate = ?, duration_seconds = ?
+                WHERE song_id = ? AND server_id = ?
+                """;
+        try (Connection conn = database.openConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, info.streamFormat());
+            pstmt.setInt(2, info.estimatedBitRate());
+            if (info.originalBitRate().isPresent()) {
+                pstmt.setInt(3, info.originalBitRate().get());
+            } else {
+                pstmt.setNull(3, Types.INTEGER);
+            }
+            pstmt.setLong(4, info.duration().toSeconds());
+            pstmt.setString(5, songId);
+            pstmt.setString(6, this.serverId.toString());
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            logger.error("Failed to update download transcode info for song: {}", songId, e);
+            throw new RuntimeException("Failed to update download transcode info", e);
         }
     }
 

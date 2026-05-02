@@ -617,17 +617,41 @@ public class SubsonicClientV2 implements ServerClient {
         @Override public String getStatus() { return subsonicResponse.status; }
     }
 
-    private SongInfo toSongInfo(ChildJson song) {
-        var duration = Duration.ofSeconds(song.duration() != null ? song.duration() : 0);
-        var downloadUri = buildUri("/rest/download", Map.of("id", song.id()));
-        var defaultSuffix = song.suffix() != null && !song.suffix().isEmpty() ? song.suffix() : "mp3";
-
-        var transcodeInfo = new TranscodeInfo(
-                song.id(),
-                ofNullable(song.bitRate()),
+    private TranscodeInfo buildTranscodeInfo(String songId, Optional<Integer> originalBitRate, Duration duration, String songSuffix) {
+        var defaultSuffix = songSuffix != null && !songSuffix.isEmpty() ? songSuffix : "mp3";
+        return new TranscodeInfo(
+                songId,
+                originalBitRate,
                 streamBitRate,
                 duration,
                 streamFormat.isEmpty() ? defaultSuffix : streamFormat
+        );
+    }
+
+    @Override
+    public TranscodeInfo currentTranscodeInfo(SongInfo songInfo) {
+        return currentTranscodeInfo(
+                songInfo.id(),
+                songInfo.bitRate(),
+                songInfo.duration(),
+                songInfo.suffix()
+        );
+    }
+
+    @Override
+    public TranscodeInfo currentTranscodeInfo(String songId, Optional<Integer> originalBitRate, Duration duration, String suffix) {
+        return buildTranscodeInfo(songId, originalBitRate, duration, suffix);
+    }
+
+    private SongInfo toSongInfo(ChildJson song) {
+        var duration = Duration.ofSeconds(song.duration() != null ? song.duration() : 0);
+        var downloadUri = buildUri("/rest/download", Map.of("id", song.id()));
+
+        var transcodeInfo = buildTranscodeInfo(
+                song.id(),
+                ofNullable(song.bitRate()),
+                duration,
+                song.suffix()
         );
 
         var artists = Utils.ofMaybeList(song.artists)

@@ -42,6 +42,18 @@ public interface ServerClient {
     void nowPlaying(ReportNowPlaying req);
     URI getStreamUri(String songId);
     StreamResponse openStream(TranscodeInfo transcodeInfo);
+
+    /**
+     * Returns the {@link TranscodeInfo} that would currently be used to stream this
+     * song, based on the live transcode/bitrate settings of this client. Used by
+     * {@code DownloadManager} to resolve the cache key for songs that have never
+     * been queued — keeps format-resolution out of {@link SongInfo}, which can be
+     * stale if a user opened a view before changing transcode settings.
+     */
+    TranscodeInfo currentTranscodeInfo(SongInfo songInfo);
+    // Same as {@link #currentTranscodeInfo(SongInfo)} but for callers that don't have a full SongInfo record.
+    TranscodeInfo currentTranscodeInfo(String songId, Optional<Integer> originalBitRate, Duration duration, String suffix);
+
     CoverArtResponse downloadCoverArt(CoverArt coverArt, int maxSize);
     ScanStatus scanStatus();
     ScanStatus startScan(boolean quickScan);

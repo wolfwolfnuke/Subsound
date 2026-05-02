@@ -2,6 +2,7 @@ package org.subsound.persistence;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.SongInfo;
 import org.subsound.integration.ServerClient.TranscodeInfo;
 import org.subsound.persistence.database.DatabaseServerService;
@@ -11,6 +12,7 @@ import org.subsound.utils.Utils;
 
 import java.io.InterruptedIOException;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -20,11 +22,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class DownloadManager implements DownloadNotifier {
     private static final Logger log = LoggerFactory.getLogger(DownloadManager.class);
     private final DatabaseServerService dbService;
     private final SongCache songCache;
+    private final Supplier<ServerClient> clientSupplier;
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
         var t = new Thread(r);
         t.setDaemon(true);
@@ -39,10 +43,12 @@ public class DownloadManager implements DownloadNotifier {
 
     public DownloadManager(
             DatabaseServerService dbService,
-            SongCache songCache
+            SongCache songCache,
+            Supplier<ServerClient> clientSupplier
     ) {
         this.dbService = dbService;
         this.songCache = songCache;
+        this.clientSupplier = clientSupplier;
         // Warm both caches from DB in a single query: queuedIds tracks non-CACHED,
         // songStatusCache holds the full item so lookups don't round-trip to DB.
         dbService.listDownloadQueue(List.of(DownloadStatus.values())).forEach(item -> {
@@ -65,7 +71,7 @@ public class DownloadManager implements DownloadNotifier {
     public void resetSongCache() {
         // Snapshot every song we're currently tracking — each will need a UI
         // refresh once we've reset the DB state below.
-        var affectedSongIds = new java.util.HashSet<>(this.downloadQueue.keySet());
+        var affectedSongIds = new HashSet<>(this.downloadQueue.keySet());
 
         // clear all our DownloadStatus.CACHED items from the table:
         dbService.clearDownloadsWithStatus(DownloadStatus.CACHED);
@@ -166,7 +172,7 @@ public class DownloadManager implements DownloadNotifier {
         queuedIds.remove(songId);
         var current = getSongStatus(songId);
         if (current.isPresent() && current.get().status().isDownloaded()) {
-            // File is on disk — keep it available offline but remove from explicit download list
+            // File is on disk. keep it available offline but remove from explicit download list:
             dbService.updateDownloadProgress(songId, DownloadStatus.CACHED, 1.0, null);
             // update cached data:
             this.loadSong(songId).ifPresent(s -> downloadQueue.put(s.songId(), s));
@@ -176,6 +182,168 @@ public class DownloadManager implements DownloadNotifier {
             downloadQueue.remove(songId);
         }
         this.publishEvent(songId);
+    }
+
+    /**
+     * Resolve the TranscodeInfo to use when fetching this song from cache or server.
+     * If a DownloadQueueItem already exists for the song, its stored streamFormat wins —
+     * that's the format whatever file is on disk was downloaded with, so the cache key
+     * must match it. For songs that have never been queued, ask the ServerClient
+     * for its current transcode policy rather than trusting the (potentially stale)
+     * format embedded in songInfo.transcodeInfo().
+     *
+     * For PENDING/FAILED rows the stored format is suspect (transcode policy may have
+     * changed since enqueue), so we refresh from the live client and persist before
+     * returning. DOWNLOADING/COMPLETED/CACHED rows are left alone.
+     */
+    private TranscodeInfo effectiveTranscodeInfo(SongInfo songInfo) {
+        var existing = downloadQueue.get(songInfo.id());
+        if (existing == null) {
+            var client = clientSupplier.get();
+            return client.currentTranscodeInfo(songInfo);
+        }
+        if (existing.status() == DownloadStatus.PENDING || existing.status() == DownloadStatus.FAILED) {
+            return currentOrStoredTranscodeInfo(existing);
+        }
+        return new TranscodeInfo(
+                songInfo.id(),
+                existing.originalBitRate(),
+                existing.estimatedBitRate(),
+                Duration.ofSeconds(existing.durationSeconds()),
+                existing.streamFormat()
+        );
+    }
+
+    /**
+     * Resolve the TranscodeInfo to use for a PENDING/FAILED row, refreshing
+     * the row's stored format when the live transcode policy has changed.
+     * The in-memory downloadQueue map is intentionally NOT updated here — the
+     * downstream state transition (DOWNLOADING → COMPLETED) reloads it from DB
+     * naturally. Falls back to the row's stored TranscodeInfo when the live
+     * client or DBSong is unavailable.
+     */
+    private TranscodeInfo currentOrStoredTranscodeInfo(DownloadQueueItem item) {
+        var stored = new TranscodeInfo(
+                item.songId(),
+                item.originalBitRate(),
+                item.estimatedBitRate(),
+                Duration.ofSeconds(item.durationSeconds()),
+                item.streamFormat()
+        );
+        var client = clientSupplier.get();
+        if (client == null) {
+            return stored;
+        }
+        var dbSong = dbService.getSongById(item.songId());
+        if (dbSong.isEmpty()) {
+            return stored;
+        }
+        var song = dbSong.get();
+        var fresh = client.currentTranscodeInfo(item.songId(), song.bitRate(), song.duration(), song.suffix());
+        if (fresh.streamFormat().equals(stored.streamFormat())
+                && fresh.estimatedBitRate() == stored.estimatedBitRate()) {
+            return stored;
+        }
+        log.info("Refreshing stored transcode format for song={} {}/{} -> {}/{}",
+                item.songId(), stored.streamFormat(), stored.estimatedBitRate(),
+                fresh.streamFormat(), fresh.estimatedBitRate());
+        dbService.updateDownloadTranscodeInfo(item.songId(), fresh);
+        return fresh;
+    }
+
+    /**
+     * Returns true if a usable copy of this song exists on disk for offline playback.
+     * Trusts the download_queue: a song is offline-available iff there is a row whose
+     * status is downloaded (COMPLETED/CACHED) and whose persisted streamFormat
+     * matches a file on disk. Never consults the live server — this method must
+     * work when the network is gone.
+     */
+    public boolean isAvailableOffline(SongInfo songInfo) {
+        var existing = downloadQueue.get(songInfo.id());
+        if (existing == null || !existing.status().isDownloaded()) {
+            return false;
+        }
+        var query = new SongCache.SongCacheQuery(
+                existing.serverId().toString(),
+                songInfo.id(),
+                existing.streamFormat()
+        );
+        return songCache.isCached(query);
+    }
+
+    /**
+     * Fetch a song for immediate playback. Returns the local URI of the cached
+     * file (HIT) or downloads it first (MISS). Either way, the resolved streamFormat
+     * is the one persisted in download_queue when available, ensuring the cache
+     * key always matches what's on disk.
+     *
+     * On a MISS, the row is upserted (CACHED for ad-hoc plays, COMPLETED for
+     * explicit downloads) and a checksum is computed.
+     */
+    public SongCache.LoadSongResult loadForPlayback(
+            SongInfo songInfo,
+            SongCache.DownloadProgressHandler progressHandler
+    ) {
+        // Sanity check before resolving format: a row marked as downloaded should
+        // have its file on disk. If not, the cache is corrupted; demote to PENDING
+        // and let the rest of the flow re-download it (with a fresh checksum).
+        var existingDownloaded = downloadQueue.get(songInfo.id());
+        if (existingDownloaded != null && existingDownloaded.status().isDownloaded()) {
+            var query = new SongCache.SongCacheQuery(
+                    existingDownloaded.serverId().toString(),
+                    songInfo.id(),
+                    existingDownloaded.streamFormat()
+            );
+            if (!songCache.isCached(query)) {
+                log.warn("Song marked as {} but cache file is missing — re-downloading: {}",
+                        existingDownloaded.status(), songInfo.id());
+                dbService.updateDownloadProgress(songInfo.id(), DownloadStatus.PENDING, 0.0, null);
+                this.loadSong(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
+                this.publishEvent(songInfo.id());
+            }
+        }
+
+        var transcodeInfo = effectiveTranscodeInfo(songInfo);
+        var serverIdStr = dbService.getServerId().toString();
+        var cacheSong = new SongCache.CacheSong(
+                serverIdStr,
+                songInfo.id(),
+                transcodeInfo,
+                songInfo.suffix(),
+                songInfo.size(),
+                progressHandler
+        );
+        var result = songCache.getSong(cacheSong);
+        if (result.result() == SongCache.CacheResult.CANCELLED) {
+            return result;
+        }
+
+        // Skip the hash + DB write when the row already records this file as downloaded.
+        // The hash is a full-file read; doing it on every HIT (e.g. on each prefetch)
+        // is pure overhead.
+        var existing = downloadQueue.get(songInfo.id());
+        if (existing != null && existing.status().isDownloaded()) {
+            return result;
+        }
+
+        String checksum = null;
+        try (var is = result.uri().toURL().openStream()) {
+            checksum = Utils.sha256(is);
+        } catch (Exception e) {
+            log.warn("Failed to calculate checksum for song: {}", songInfo.id(), e);
+        }
+
+        if (existing != null) {
+            dbService.updateDownloadProgress(songInfo.id(), DownloadStatus.COMPLETED, 1.0, null, checksum);
+            queuedIds.remove(songInfo.id());
+            this.loadSong(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
+            this.publishEvent(songInfo.id());
+        } else {
+            // Persist with the transcodeInfo we actually used — markAsCached reads
+            // streamFormat/bitrate off the SongInfo, which may be stale.
+            this.markAsCached(songInfo.withTranscodeInfo(transcodeInfo), checksum);
+        }
+        return result;
     }
 
     public void markAsCached(SongInfo songInfo, String checksum) {
@@ -246,17 +414,26 @@ public class DownloadManager implements DownloadNotifier {
 
     private void downloadSong(DownloadQueueItem item) {
         try {
+            // Refresh format from current transcode policy before downloading.
+            // After resetSongCache rows go back to PENDING with their old format —
+            // refreshing here ensures re-downloads pick up the latest user setting.
+            // DOWNLOADING rows (resumed mid-flight) are left alone.
+            final TranscodeInfo transcodeInfo;
+            if (item.status() == DownloadStatus.PENDING || item.status() == DownloadStatus.FAILED) {
+                transcodeInfo = currentOrStoredTranscodeInfo(item);
+            } else {
+                transcodeInfo = new TranscodeInfo(
+                        item.songId(),
+                        item.originalBitRate(),
+                        item.estimatedBitRate(),
+                        Duration.ofSeconds(item.durationSeconds()),
+                        item.streamFormat()
+                );
+            }
+
             this.dbService.updateDownloadProgress(item.songId(), DownloadStatus.DOWNLOADING, item.progress(), null);
             downloadQueue.put(item.songId(), item.withStatus(DownloadStatus.DOWNLOADING).withProgress(0));
             this.publishEvent(item.songId());
-
-            var transcodeInfo = new TranscodeInfo(
-                    item.songId(),
-                    item.originalBitRate(),
-                    item.estimatedBitRate(),
-                    Duration.ofSeconds(item.durationSeconds()),
-                    item.streamFormat()
-            );
 
             var cacheSong = new SongCache.CacheSong(
                     item.serverId().toString(),

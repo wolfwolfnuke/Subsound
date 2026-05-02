@@ -25,7 +25,6 @@ import org.subsound.persistence.CachingClient;
 import org.subsound.persistence.DownloadManager;
 import org.subsound.persistence.ScrobbleService;
 import org.subsound.persistence.SongCache;
-import org.subsound.persistence.SongCache.CacheSong;
 import org.subsound.persistence.SongCache.LoadSongResult;
 import org.subsound.persistence.ThumbnailCache;
 import org.subsound.persistence.database.Database;
@@ -77,7 +76,6 @@ import static org.subsound.app.state.AppManager.NowPlaying.State.LOADING;
 import static org.subsound.app.state.AppManager.NowPlaying.State.READY;
 import static org.subsound.utils.Utils.doAsync;
 import static org.subsound.utils.Utils.runOnMainThread;
-import static org.subsound.utils.Utils.sha256;
 import static org.subsound.utils.Utils.timeIt;
 
 public class AppManager {
@@ -148,11 +146,13 @@ public class AppManager {
                 UUID.fromString(savedServerId),
                 this.database
         );
+        // Load server configuration from DB (or migrate from legacy JSON)
+        this.client = new AtomicReference<>();
         this.songCache = new SongCache(
                 config.dataDir,
                 transcodeInfo -> this.useClient(c -> c.openStream(transcodeInfo))
         );
-        this.downloadManager = new DownloadManager(dbService, songCache);
+        this.downloadManager = new DownloadManager(dbService, songCache, this.client::get);
         this.gSongStore = new GSongStore(
                 songId -> this.useClient(c -> c.getSong(songId)),
                 this.downloadManager
@@ -165,8 +165,6 @@ public class AppManager {
                 songInfo -> loadSourceAsync(new PlayerAction.PlaySong(songInfo.getSongInfo()))
         );
 
-        // Load server configuration from DB (or migrate from legacy JSON)
-        this.client = new AtomicReference<>();
         this.thumbnailCache.setDownloader(
                 (coverArt, maxSize) -> this.useClient(c -> c.downloadCoverArt(coverArt, maxSize))
         );
@@ -619,10 +617,7 @@ public class AppManager {
 
         // If server is unreachable and song is not cached, we can't play it
         if (songUri.isEmpty()) {
-            var cacheQuery = new SongCache.SongCacheQuery(
-                    SERVER_ID, songInfo.id(), songInfo.transcodeInfo().streamFormat()
-            );
-            if (!songCache.isCached(cacheQuery)) {
+            if (!this.downloadManager.isAvailableOffline(songInfo)) {
                 this.toast(new PlayerAction.Toast(new org.gnome.adw.Toast("Song not available offline")));
                 this.setState(old -> old.withNowPlaying(Optional.empty()));
                 this.scrobbleSession.set(null);
@@ -649,12 +644,8 @@ public class AppManager {
                 .build()
         );
         AtomicBoolean isCancelled = new AtomicBoolean(false);
-        LoadSongResult cachedSong = songCache.getSong(new CacheSong(
-                SERVER_ID,
-                songInfo.id(),
-                songInfo.transcodeInfo(),
-                songInfo.suffix(),
-                songInfo.size(),
+        LoadSongResult cachedSong = downloadManager.loadForPlayback(
+                songInfo,
                 (total, count) -> {
                     if (isCancelled.get()) {
                         throw new SongCache.CancelledDownloadException();
@@ -678,19 +669,11 @@ public class AppManager {
                         throw new SongCache.CancelledDownloadException();
                     }
                 }
-        ));
+        );
         log.info("cached: result={} id={} title={}", cachedSong.result().name(), songInfo.id(), songInfo.title());
         if (cachedSong.result() == SongCache.CacheResult.CANCELLED) {
             return null;
         }
-        // Track this song as cached so it shows as available offline
-        String checksum = null;
-        try (var is = cachedSong.uri().toURL().openStream()) {
-            checksum = sha256(is);
-        } catch (Exception e) {
-            log.warn("Failed to calculate checksum for cached song: {}", songInfo.id(), e);
-        }
-        this.downloadManager.markAsCached(songInfo, checksum);
         AppState appState = this.currentState.getValue();
         var currentRequestId = appState.nowPlaying().map(NowPlaying::requestId).orElse(null);
         if (!requestId.equals(currentRequestId)) {
@@ -735,16 +718,8 @@ public class AppManager {
             return;
         }
         var songInfo = next.get().getSongInfo();
-        var cacheSong = new CacheSong(
-                SERVER_ID,
-                songInfo.id(),
-                songInfo.transcodeInfo(),
-                songInfo.suffix(),
-                songInfo.size(),
-                (total, count) -> {}
-        );
         Utils.doAsync(() -> {
-            var result = songCache.getSong(cacheSong);
+            var result = this.downloadManager.loadForPlayback(songInfo, (total, count) -> {});
             if (result.result() != SongCache.CacheResult.CANCELLED) {
                 log.debug("prefetchNextSong: cached song={}", songInfo.id());
             }

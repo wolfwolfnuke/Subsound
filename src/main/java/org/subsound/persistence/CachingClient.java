@@ -404,6 +404,16 @@ public class CachingClient implements ServerClient {
     }
 
     @Override
+    public TranscodeInfo currentTranscodeInfo(SongInfo songInfo) {
+        return delegate.currentTranscodeInfo(songInfo);
+    }
+
+    @Override
+    public TranscodeInfo currentTranscodeInfo(String songId, Optional<Integer> originalBitRate, Duration duration, String suffix) {
+        return delegate.currentTranscodeInfo(songId, originalBitRate, duration, suffix);
+    }
+
+    @Override
     public CoverArtResponse downloadCoverArt(CoverArt coverArt, int maxSize) {
         return delegate.downloadCoverArt(coverArt, maxSize);
     }
