@@ -1,7 +1,6 @@
 package org.subsound.ui.components;
 
 import org.gnome.adw.ButtonRow;
-import org.gnome.adw.Clamp;
 import org.gnome.adw.EntryRow;
 import org.gnome.adw.PasswordEntryRow;
 import org.gnome.adw.SwitchRow;
@@ -45,7 +44,6 @@ public class ServerConfigForm extends Box {
 
     private final Path dataDir;
     private final Function<PlayerAction, CompletableFuture<Void>> onAction;
-    private final Clamp clamp;
     private final Box centerBox;
 
     final ListBox listBox;
@@ -84,7 +82,8 @@ public class ServerConfigForm extends Box {
         this.dataDir = dataDir;
         this.onAction = onAction;
         this.setValign(Align.CENTER);
-        this.setHalign(Align.CENTER);
+        this.setHalign(Align.FILL);
+        this.setHexpand(true);
 
         this.serverTypeInfoLabel = Label.builder().setLabel("New Server").setCssClasses(titleLarge.add()).build();
         this.serverUrlEntry = EntryRow.builder().setTitle("Server URL").setText("https://").build();
@@ -99,6 +98,7 @@ public class ServerConfigForm extends Box {
         this.saveButton.addCssClass(suggestedAction.className());
 
         this.listBox = new ListBox();
+        this.listBox.setHexpand(true);
         this.listBox.addCssClass(boxedList.className());
         this.listBox.setSelectionMode(SelectionMode.NONE);
 
@@ -109,11 +109,10 @@ public class ServerConfigForm extends Box {
         this.listBox.append(testButton);
         this.listBox.append(saveButton);
 
-        this.centerBox = borderBox(VERTICAL, 8).setSpacing(8).build();
+        this.centerBox = borderBox(VERTICAL, 0).setSpacing(8).build();
         this.centerBox.append(serverTypeInfoLabel);
         this.centerBox.append(this.listBox);
-        this.clamp = Clamp.builder().setMaximumSize(600).setChild(this.centerBox).build();
-        this.append(clamp);
+        this.append(this.centerBox);
         this.setSettingsInfo(settingsInfo);
     }
 

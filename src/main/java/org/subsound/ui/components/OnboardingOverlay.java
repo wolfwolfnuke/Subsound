@@ -1,5 +1,6 @@
 package org.subsound.ui.components;
 
+import org.gnome.adw.Clamp;
 import org.gnome.adw.HeaderBar;
 import org.gnome.adw.ToolbarView;
 import org.gnome.gdk.Texture;
@@ -51,8 +52,9 @@ public class OnboardingOverlay extends Overlay {
         bodyTextLabel.setJustify(Justification.CENTER);
         bodyTextLabel.addCssClass(Classes.bodyText.className());
         bodyTextLabel.setMarginBottom(10);
+        var clamp = Clamp.builder().setMaximumSize(600).setChild(this.serverConfigForm).build();
         this.contentBox.append(bodyTextLabel);
-        this.contentBox.append(this.serverConfigForm);
+        this.contentBox.append(clamp);
         this.toolbarView = new ToolbarView();
         this.toolbarView.addTopBar(this.headerBar);
         this.toolbarView.setContent(this.contentBox);
