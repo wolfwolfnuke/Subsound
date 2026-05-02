@@ -40,7 +40,7 @@ public class PlayQueue implements AutoCloseable, PlaybinPlayer.OnStateChanged {
     private final Consumer<GSongInfo> onPlay;
     private final ListStore<GQueueItem> listStore = new ListStore<>(GQueueItem.gtype);
     private final GSongStore songstore;
-    private Optional<ObjectIdentifier> playContext;
+    private Optional<ObjectIdentifier> playContext = Optional.empty();
     private Optional<Integer> position = Optional.empty();
     private PlayMode playMode = PlayMode.NORMAL;
 
