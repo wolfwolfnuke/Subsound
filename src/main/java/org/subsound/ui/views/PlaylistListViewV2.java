@@ -1314,11 +1314,11 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             var info = entry.gSong().getSongInfo();
             this.titleLabel.setLabel(info.title());
             if (info.artists().isPresent() && !info.artists().get().isEmpty()) {
-                log.info("Song {} has artists={} albumArtists={}", info.id(), info.artists().get(), info.albumArtists().orElseGet(List::of));
+                //log.info("Song {} has artists={} albumArtists={}", info.id(), info.artists().get(), info.albumArtists().orElseGet(List::of));
             }
             var artists = info.artists().orElse(List.of());
             if (artists.isEmpty()) {
-                log.info("Song {} has main={} artists={} albumArtists={}", info.id(), info.mainArtist(), info.artists().get(), info.albumArtists().orElseGet(List::of));
+                //log.info("Song {} has main={} artists={} albumArtists={}", info.id(), info.mainArtist(), info.artists().get(), info.albumArtists().orElseGet(List::of));
                 artists = List.of(info.mainArtist());
             }
             this.artistLabel.setArtists(artists);
