@@ -1,5 +1,7 @@
 package org.subsound.persistence.database;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.AlbumInfo;
 import org.subsound.integration.ServerClient.ArtistAlbumInfo;
@@ -10,12 +12,12 @@ import org.subsound.integration.ServerClient.SongInfo;
 import org.subsound.persistence.SongCache;
 import org.subsound.persistence.SongCacheChecker;
 import org.subsound.persistence.ThumbnailCache;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.subsound.persistence.ThumbnailCache.ThumbLoaded;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -116,12 +118,21 @@ public class SyncService {
 
             // Step 6: Cache all collected thumbnails
             logger.info("Caching {} thumbnails", collectedCoverArts.size());
-            List<CompletableFuture<Void>> thumbFutures = collectedCoverArts.stream()
+            var thumbFutures = collectedCoverArts.stream()
                     .distinct()
-                    .map(ca -> thumbnailCache.loadThumbAsync(ca).thenAccept(loaded -> {}))
+                    .map(ca -> thumbnailCache.loadThumbAsync(ca).handle((loaded, throwable) -> {
+                        if (throwable != null) {
+                            logger.warn("Failed to cache thumbnail for coverArtId={}", ca.coverArtId(), throwable);
+                            return Optional.<ThumbLoaded>empty();
+                        } else {
+                            return Optional.of(loaded);
+                        }
+                    }))
                     .toList();
-            CompletableFuture.allOf(thumbFutures.toArray(new CompletableFuture[0])).join();
-            logger.info("Finished caching thumbnails");
+            var thumbResults = thumbFutures.stream().map(CompletableFuture::join).toList();
+            long thumbFailures = thumbResults.stream().filter(Optional::isEmpty).count();
+            long thumbSuccess = thumbResults.stream().filter(Optional::isPresent).count();;
+            logger.info("Finished caching thumbnails success={} failures={}", thumbSuccess, thumbFailures);
 
             var elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
             logger.info("Synced {} artists, {} albums, {} songs, {} playlists in {}ms", stats.artists, stats.albums, stats.songs, stats.playlists, elapsedMillis);
