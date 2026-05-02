@@ -351,6 +351,48 @@
   },
   {
     "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/moshi/moshi-adapters/1.15.2/moshi-adapters-1.15.2.jar",
+    "sha512": "1ef6b4148526786760bf88747cd639a0164b4bf9e9d1da6b6dd1691b953c92180bfbaa8a665532fea278c167d18f089cdf8f95365155a4415d7f62c962521ea9",
+    "dest": "./offline-repository/com/squareup/moshi/moshi-adapters/1.15.2",
+    "dest-filename": "moshi-adapters-1.15.2.jar"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/moshi/moshi-adapters/1.15.2/moshi-adapters-1.15.2.module",
+    "sha512": "c847a97724e678288b353db93967a49973b0ff6d73588f33c5d14b84aff33702cb2d6a7155b91cd8a6c70e309f55ebd9c355e554ee0b8b76eb046d223890deb3",
+    "dest": "./offline-repository/com/squareup/moshi/moshi-adapters/1.15.2",
+    "dest-filename": "moshi-adapters-1.15.2.module"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/moshi/moshi-adapters/1.15.2/moshi-adapters-1.15.2.pom",
+    "sha512": "57c12949de1f83baf423a57ec9e6322c25d03b042aef895f0285da9b6cfa99648330f764d7ba41237b322e2a8a9171148e396b957731234a729c148f6cd2bfa4",
+    "dest": "./offline-repository/com/squareup/moshi/moshi-adapters/1.15.2",
+    "dest-filename": "moshi-adapters-1.15.2.pom"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/moshi/moshi/1.15.2/moshi-1.15.2.jar",
+    "sha512": "0f1b7025e8c567b3b17ebcbda5c6de505c019670d927c0fd01b78cb1483ad61fc94f9373e40cfef986bd002460cc001bba072d8933a406756a08c8d8231a3c9e",
+    "dest": "./offline-repository/com/squareup/moshi/moshi/1.15.2",
+    "dest-filename": "moshi-1.15.2.jar"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/moshi/moshi/1.15.2/moshi-1.15.2.module",
+    "sha512": "20480c954ef7a3fbdd5670eabecb3a7201cf2dbfb7245ea6660a1475648e1265e0c97d415bb48b085899a6450e90d6a8155bd9edcc4656db5a42abc87888ad5c",
+    "dest": "./offline-repository/com/squareup/moshi/moshi/1.15.2",
+    "dest-filename": "moshi-1.15.2.module"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/squareup/moshi/moshi/1.15.2/moshi-1.15.2.pom",
+    "sha512": "8ce513d1ecb385aa1c1a3c2f032cad8f08aeaf10a26b4aeca488e94d717c65369441c5bab7654c77312267e9b79a2439d16870885fe10ad1b7ecee2554db6407",
+    "dest": "./offline-repository/com/squareup/moshi/moshi/1.15.2",
+    "dest-filename": "moshi-1.15.2.pom"
+  },
+  {
+    "type": "file",
     "url": "https://repo.maven.apache.org/maven2/com/squareup/okhttp3/mockwebserver3/5.3.2/mockwebserver3-5.3.2.jar",
     "sha512": "5f0cdec3ee67aeff87c4a5953e1afe87a8619ca8765daa4e58a8787ee9c2b625c8b34c9721ecc6c814d8dcb12452ef2818ebe184985102f1e30f20966cbb5b17",
     "dest": "./offline-repository/com/squareup/okhttp3/mockwebserver3/5.3.2",
@@ -1660,10 +1702,38 @@
   },
   {
     "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.8.21/kotlin-stdlib-jdk7-1.8.21.jar",
+    "sha512": "0ff5d13438c179cfd3a658ae3f6e2535d11651ecf4e89d809882704d111c91af859de9d99eaa3c4b45103524b052614c0a084223aa8bd70ff88b43d503fbdfe3",
+    "dest": "./offline-repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.8.21",
+    "dest-filename": "kotlin-stdlib-jdk7-1.8.21.jar"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.8.21/kotlin-stdlib-jdk7-1.8.21.pom",
+    "sha512": "adfcb397c23e9ed89f272a2321de51689d86ce359b54d822dd5983ad5efc57216606f472e4868727e0038d061d0934cb27bd8210b94cca944b541a97976852b8",
+    "dest": "./offline-repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.8.21",
+    "dest-filename": "kotlin-stdlib-jdk7-1.8.21.pom"
+  },
+  {
+    "type": "file",
     "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.8.0/kotlin-stdlib-jdk8-1.8.0.pom",
     "sha512": "2c5b573c0e5fcd9137b614586f7e4b5becaff8edcd15431e785bce5014bd23e3c70f22be5fd95ab15ab99326fddc2b27fcdc9726312a59c4d47d34e88940d3f9",
     "dest": "./offline-repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.8.0",
     "dest-filename": "kotlin-stdlib-jdk8-1.8.0.pom"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.8.21/kotlin-stdlib-jdk8-1.8.21.jar",
+    "sha512": "b1a38d6a9d1d7c4cb18ddeba63201cb3a5de101e5a32fd32edcafc3f0350813ee97fd13d3f81bb61a4c1eefe0c02b0349bd07301d682f342ca5caed17f709f34",
+    "dest": "./offline-repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.8.21",
+    "dest-filename": "kotlin-stdlib-jdk8-1.8.21.jar"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.8.21/kotlin-stdlib-jdk8-1.8.21.pom",
+    "sha512": "24d9dc63355bee04f6f69d68c27ff5aa1a0b6864cb9280d32824d19092e160750880d0405a156d31c38427ff5cd04265b30d646dfbfae503691f04eb9d9a0358",
+    "dest": "./offline-repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.8.21",
+    "dest-filename": "kotlin-stdlib-jdk8-1.8.21.pom"
   },
   {
     "type": "file",
