@@ -8,6 +8,7 @@ import org.gnome.adw.PreferencesGroup;
 import org.gnome.gtk.Align;
 import org.gnome.gtk.Box;
 import org.gnome.gtk.Image;
+import org.gnome.gtk.ScrolledWindow;
 import org.gnome.gtk.StringList;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -65,8 +66,8 @@ public class SettingsPage extends Box {
     ) {
         super(VERTICAL, 0);
         this.appManager = appManager;
-        this.setValign(Align.CENTER);
-        this.setHalign(Align.CENTER);
+        this.setValign(Align.FILL);
+        this.setHalign(Align.FILL);
         this.clearSongCacheButton = ButtonRow.builder().setTitle("Clear song cache").build();
         this.clearSongCacheButton.addCssClass(destructiveAction.className());
         this.clearSongCacheButton.onActivated(() -> appManager.handleAction(new PlayerAction.ClearSongCache()));
@@ -239,7 +240,15 @@ public class SettingsPage extends Box {
         var clamp = new Clamp();
         clamp.setMaximumSize(600);
         clamp.setChild(this.centerBox);
-        this.append(clamp);
+        var scroll = new ScrolledWindow();
+        scroll.setChild(clamp);
+        scroll.setHexpand(true);
+        scroll.setVexpand(true);
+        scroll.setPropagateNaturalWidth(true);
+        scroll.setPropagateNaturalHeight(true);
+        this.setHexpand(true);
+        this.setVexpand(true);
+        this.append(scroll);
         this.refresh();
         this.refreshLocalCount();
     }

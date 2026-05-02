@@ -328,7 +328,8 @@ public class DownloadManagerTest {
         DatabaseServerService dbService = new DatabaseServerService(serverId, db);
         SongCache songCache = new SongCache(
                 dataDir.toPath(),
-                ti -> this.mockMusicServer.openStream(ti)
+                ti -> this.mockMusicServer.openStream(ti),
+                2
         );
         return new Fixture(dbService, songCache, dataDir.toPath(), serverId);
     }

@@ -150,7 +150,8 @@ public class AppManager {
         this.client = new AtomicReference<>();
         this.songCache = new SongCache(
                 config.dataDir,
-                transcodeInfo -> this.useClient(c -> c.openStream(transcodeInfo))
+                transcodeInfo -> this.useClient(c -> c.openStream(transcodeInfo)),
+                2
         );
         this.downloadManager = new DownloadManager(dbService, songCache, this.client::get);
         this.gSongStore = new GSongStore(

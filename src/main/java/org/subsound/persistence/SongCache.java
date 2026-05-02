@@ -16,6 +16,9 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.Comparator;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 import static org.subsound.utils.Utils.sha256;
@@ -25,12 +28,34 @@ public class SongCache implements SongCacheChecker {
 
     private final Path root;
     private final Function<TranscodeInfo, StreamResponse> streamOpener;
+    // Per-songId lock so concurrent getSong() calls for the same song don't both
+    // hit the network. Refcounted: the entry is removed once the last
+    // holder/waiter releases, so the map size stays O(active songs) even on
+    // libraries with millions of tracks.
+    private final ConcurrentHashMap<String, LockRef> downloadLocks = new ConcurrentHashMap<>();
+    // maximum number of downloads in-flight
+    private final Semaphore downloadSlots;
+
+    /**
+     * Refcount holder for a per-song download lock. Mutated only inside
+     * {@link ConcurrentHashMap#compute}, which serializes access for a given
+     * key, so plain {@code int} is safe.
+     */
+    private static final class LockRef {
+        final ReentrantLock lock = new ReentrantLock();
+        int refs;
+    }
 
     public SongCache(
             Path cacheDir,
-            Function<TranscodeInfo, StreamResponse> streamOpener
+            Function<TranscodeInfo, StreamResponse> streamOpener,
+            int maxConcurrentDownloads
     ) {
+        if (maxConcurrentDownloads < 1) {
+            throw new IllegalArgumentException("maxConcurrentDownloads must be >= 1, got " + maxConcurrentDownloads);
+        }
         this.streamOpener = streamOpener;
+        this.downloadSlots = new Semaphore(maxConcurrentDownloads);
         var f = cacheDir.toFile();
         if (!f.exists()) {
             if (!f.mkdirs()) {
@@ -71,19 +96,91 @@ public class SongCache implements SongCacheChecker {
     }
 
     public LoadSongResult getSong(CacheSong songData) {
-        // Check cache
         var cachePath = this.cachePath(songData);
         var cacheFile = cachePath.cachePath.toAbsolutePath().toFile();
+        // Fast path: file already exists, no lock or permit needed.
+        var hit = checkHit(cacheFile);
+        if (hit != null) {
+            return hit;
+        }
+
+        // Serialize concurrent fetches for the same songId.
+        // The second caller typically finds the file present after acquiring the lock
+        var ref = acquireDownloadLock(songData.songId());
+        ref.lock.lock();
+        try {
+            hit = checkHit(cacheFile);
+            if (hit != null) {
+                return hit;
+            }
+            // Throttle concurrent downloads in-flight. Cache hits and waiters for the same song don't
+            // consume a permit.
+            try {
+                downloadSlots.acquire();
+            } catch (InterruptedException e) {
+                // TODO: probably not needed to propagate interrupt flag?
+                //Thread.currentThread().interrupt();
+                log.info("Download cancelled while waiting for a download slot: songId={}", songData.songId());
+                return new LoadSongResult(CacheResult.CANCELLED, null);
+            }
+            try {
+                return doDownload(songData, cachePath, cacheFile);
+            } finally {
+                downloadSlots.release();
+            }
+        } finally {
+            ref.lock.unlock();
+            releaseDownloadLock(songData.songId());
+        }
+    }
+
+    /**
+     * Increment the refcount for songId and return the LockRef. Creates a fresh
+     * one when no concurrent waiters/holders exist for this id.
+     */
+    private LockRef acquireDownloadLock(String songId) {
+        return downloadLocks.compute(songId, (k, existing) -> {
+            var ref = existing == null ? new LockRef() : existing;
+            ref.refs++;
+            return ref;
+        });
+    }
+
+    /**
+     * Decrement the refcount; remove the entry when no one else is using it so
+     * the map stays O(active songs) instead of O(songs ever touched).
+     */
+    private void releaseDownloadLock(String songId) {
+        downloadLocks.compute(songId, (k, existing) -> {
+            if (existing == null) {
+                return null;
+            }
+            existing.refs--;
+            return existing.refs <= 0 ? null : existing;
+        });
+    }
+
+    // visible for tests
+    int activeDownloadLockCount() {
+        return downloadLocks.size();
+    }
+
+    private LoadSongResult checkHit(File cacheFile) {
         if (cacheFile.isDirectory()) {
             cacheFile.delete();
+            return null;
         }
         if (cacheFile.length() == 0) {
             cacheFile.delete();
+            return null;
         }
         if (cacheFile.exists()) {
             return new LoadSongResult(CacheResult.HIT, cacheFile.toURI());
         }
+        return null;
+    }
 
+    private LoadSongResult doDownload(CacheSong songData, CachehPath cachePath, File cacheFile) {
         cachePath.cachePath.getParent().toFile().mkdirs();
         var requestId = UUID.randomUUID().toString();
         var cacheTmpFile = joinPath(
@@ -102,7 +199,7 @@ public class SongCache implements SongCacheChecker {
         try (var streamResponse = streamOpener.apply(songData.transcodeInfo);
              var fileOutput = new FileOutputStream(cacheTmpFile)) {
             long estimatedContentSize = songData.transcodeInfo.estimateContentSize();
-            long downloadSize = downloadTo(
+            downloadTo(
                     streamResponse,
                     fileOutput,
                     songData.originalSize,
