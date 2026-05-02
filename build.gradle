@@ -18,6 +18,7 @@ repositories {
 
 def javagiVersion = "0.15.0"
 def recordBuilderVersion = "52"
+def moshiVersion = "1.15.2"
 
 dependencies {
     implementation "org.java-gi:gtk:$javagiVersion"
@@ -29,6 +30,8 @@ dependencies {
     implementation 'net.beardbot:subsonic-client:0.6.0'
     implementation "com.github.ben-manes.caffeine:caffeine:3.2.3"
     implementation 'com.squareup.okhttp3:okhttp:5.3.2'
+    implementation "com.squareup.moshi:moshi:$moshiVersion"
+    implementation "com.squareup.moshi:moshi-adapters:$moshiVersion"
     implementation 'com.zaxxer:HikariCP:7.0.2'
     implementation 'com.google.code.gson:gson:2.14.0'
     implementation 'de.androidpit:color-thief:1.1.2'
