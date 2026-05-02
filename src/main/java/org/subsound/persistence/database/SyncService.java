@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -34,7 +34,7 @@ public class SyncService {
     private final ThumbnailCache thumbnailCache;
     private final SongCacheChecker songCacheChecker;
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
-    private final List<CoverArt> collectedCoverArts = new CopyOnWriteArrayList<>();
+    private final ConcurrentHashMap<String, CoverArt> collectedCoverArts = new ConcurrentHashMap<>();
 
     public SyncService(ServerClient serverClient, DatabaseServerService databaseServerService, UUID serverId, ThumbnailCache thumbnailCache, SongCacheChecker songCacheChecker) {
         this.serverClient = serverClient;
@@ -118,8 +118,7 @@ public class SyncService {
 
             // Step 6: Cache all collected thumbnails
             logger.info("Caching {} thumbnails", collectedCoverArts.size());
-            var thumbFutures = collectedCoverArts.stream()
-                    .distinct()
+            var thumbFutures = collectedCoverArts.values().stream()
                     .map(ca -> thumbnailCache.loadThumbAsync(ca).handle((loaded, throwable) -> {
                         if (throwable != null) {
                             logger.warn("Failed to cache thumbnail for coverArtId={}", ca.coverArtId(), throwable);
@@ -160,7 +159,7 @@ public class SyncService {
         databaseServerService.insert(artist);
 
         // Collect artist cover art for thumbnail caching
-        artistInfo.coverArt().ifPresent(collectedCoverArts::add);
+        artistInfo.coverArt().ifPresent(coverArt -> collectedCoverArts.put(coverArt.coverArtId(), coverArt));
 
         int songs = 0;
         for (ArtistAlbumInfo albumInfoSimple : artistInfo.albums()) {
@@ -189,7 +188,7 @@ public class SyncService {
                 genre
         );
         // Collect album cover art for thumbnail caching
-        albumInfo.coverArt().ifPresent(collectedCoverArts::add);
+        albumInfo.coverArt().ifPresent(coverArt -> collectedCoverArts.put(coverArt.coverArtId(), coverArt));
 
         var start = System.nanoTime();
 
@@ -198,7 +197,7 @@ public class SyncService {
             songs.add(DBSong.from(songInfo, serverId));
 
             // Collect song cover art for thumbnail caching
-            songInfo.coverArt().ifPresent(collectedCoverArts::add);
+            songInfo.coverArt().ifPresent(coverArt -> collectedCoverArts.put(coverArt.coverArtId(), coverArt));
         }
         databaseServerService.syncAlbumBatch(album, songs);
         var elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
