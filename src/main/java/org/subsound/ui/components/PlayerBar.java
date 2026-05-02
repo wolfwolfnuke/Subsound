@@ -307,6 +307,7 @@ public class PlayerBar extends Box implements AppManager.StateListener {
             this.updatePlayMode(mode);
             this.appManager.handleAction(new PlayerAction.SetPlayMode(mode));
         });
+        updatePlayMode(appManager.getState().queue().playMode());
 
         playPauseButton = Button.builder().setIconName(Icons.PLAY.getIconName()).build();
         playPauseButton.addCssClass("circular");
