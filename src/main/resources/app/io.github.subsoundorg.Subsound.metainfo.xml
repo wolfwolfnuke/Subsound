@@ -58,7 +58,23 @@
   </branding>
 
   <releases>
-    <release version="@version@" date="2026-04-19">
+    <release version="@version@" date="2026-05-02">
+      <description>
+        <ul>
+          <li>New: redesigned playback scrubber with a cleaner look and feel</li>
+          <li>New: sort playlists by title or artist by clicking the column header</li>
+          <li>New: reportPlayback: playback progress is reported to your server in real time on servers that advertise OpenSubsonic playback reporting</li>
+          <li>Improved: more server details shown on the Settings page</li>
+          <li>Improved: artist, album-artist and mood metadata are now stored locally for richer offline browsing</li>
+          <li>Improved: faster playlist scrolling and album-art rendering, especially for large libraries</li>
+          <li>Bugfix: re-downloading a song now always fetches the current transcoded format from the server</li>
+          <li>Bugfix: shuffle and repeat buttons in the player bar now show the correct state right after startup</li>
+          <li>Bugfix: fixed a race where the same song could start downloading twice at once</li>
+          <li>Bugfix: fixed sizing of the onboarding/server-config form so it no longer renders too narrow</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.6.20" date="2026-04-19">
       <description>
         <ul>
           <li>New: "Now Playing" is reported to your server while you listen, so other Subsonic clients can see what's playing</li>
