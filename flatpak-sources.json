@@ -211,6 +211,13 @@
   },
   {
     "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/google/code/gson/gson-parent/2.14.0/gson-parent-2.14.0.pom",
+    "sha512": "8f2498a254bcb6aa92563a3fdec533039055e1559a91a49be354b1cc4ffb39de2623a2c590308930d34eddf929567463baeafa0e91baf98c2bb0495260bba8d4",
+    "dest": "./offline-repository/com/google/code/gson/gson-parent/2.14.0",
+    "dest-filename": "gson-parent-2.14.0.pom"
+  },
+  {
+    "type": "file",
     "url": "https://repo.maven.apache.org/maven2/com/google/code/gson/gson/2.13.2/gson-2.13.2.jar",
     "sha512": "8974a052656d2e5ec968b6bac2edf51413ffc62040fdc65f14f00597e738ab544d22487f8579ba90618b5a7f94ef33773510fac67b408fee6ed274b38f3d9947",
     "dest": "./offline-repository/com/google/code/gson/gson/2.13.2",
@@ -222,6 +229,20 @@
     "sha512": "c0d089089bf0d6bcfae008f329dcc2db2538d02654f8bc7690cb8db2ec94fe0d2aa069ac1d70a111a28cced0ffd7742ac8db29a884d64d9413ebf9b2af5dab82",
     "dest": "./offline-repository/com/google/code/gson/gson/2.13.2",
     "dest-filename": "gson-2.13.2.pom"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/google/code/gson/gson/2.14.0/gson-2.14.0.jar",
+    "sha512": "d040d19a47ca2df33365493f9813a1d0a40b91685f7d87ca445b98d37b4c1b801314aef87940dc8b43dd1b0b96f6d5e6e4296778bf1af8dbfb1091425b37da21",
+    "dest": "./offline-repository/com/google/code/gson/gson/2.14.0",
+    "dest-filename": "gson-2.14.0.jar"
+  },
+  {
+    "type": "file",
+    "url": "https://repo.maven.apache.org/maven2/com/google/code/gson/gson/2.14.0/gson-2.14.0.pom",
+    "sha512": "e4658b6de3de50bd47a79fe9ca7d6795d78e7d5223782db95ef23aaf4c5f878b81a09ef7096f9888d2e84e5d112ee437c9c85e9153c507b7c21bd6bd88dadb26",
+    "dest": "./offline-repository/com/google/code/gson/gson/2.14.0",
+    "dest-filename": "gson-2.14.0.pom"
   },
   {
     "type": "file",
@@ -239,17 +260,17 @@
   },
   {
     "type": "file",
-    "url": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.43.0/error_prone_annotations-2.43.0.jar",
-    "sha512": "1e9e8cc7e7eebdbb12c21ad94868c731c49533dd9ef5c6db6e93c421c57ca4e6a5a22e1830a41c65b19e4755c84d6450dccea0f8d23258a65a9d395dfd17405e",
-    "dest": "./offline-repository/com/google/errorprone/error_prone_annotations/2.43.0",
-    "dest-filename": "error_prone_annotations-2.43.0.jar"
+    "url": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.48.0/error_prone_annotations-2.48.0.jar",
+    "sha512": "1692b210d2b4c1d446da1d86ee787be1c3be56ee8c5f4274f20ef126b57c444a403464df7b9dfdf10bccbe7e0432247ecffe615fbc30d16be7a3282cb2556d34",
+    "dest": "./offline-repository/com/google/errorprone/error_prone_annotations/2.48.0",
+    "dest-filename": "error_prone_annotations-2.48.0.jar"
   },
   {
     "type": "file",
-    "url": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.43.0/error_prone_annotations-2.43.0.pom",
-    "sha512": "9769e5cf246a23581de8b3014d8620134c59ff7f393d19307f3fd8fde1de0b8d37c8474d26aedf47610c43016adfe19b875747a19245fa755bf24a34f71da5d4",
-    "dest": "./offline-repository/com/google/errorprone/error_prone_annotations/2.43.0",
-    "dest-filename": "error_prone_annotations-2.43.0.pom"
+    "url": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.48.0/error_prone_annotations-2.48.0.pom",
+    "sha512": "4cb77580d42df91619e267b7e5080f45b6ef2b2a7f4bd25526d7682ca67eb4e50d8f53f92605fa997dca0f7082253192d02a2a5358fafcc2e05b60719ebc709e",
+    "dest": "./offline-repository/com/google/errorprone/error_prone_annotations/2.48.0",
+    "dest-filename": "error_prone_annotations-2.48.0.pom"
   },
   {
     "type": "file",
@@ -260,10 +281,10 @@
   },
   {
     "type": "file",
-    "url": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_parent/2.43.0/error_prone_parent-2.43.0.pom",
-    "sha512": "1cd14bc6a9c9e5d4d851bf63079d5e03b299a27469bc2155af9c5839824bc09afc9b25b2590900b90dfe7a5b3daf0935ffaf606418aa946bb64ca61b338818d9",
-    "dest": "./offline-repository/com/google/errorprone/error_prone_parent/2.43.0",
-    "dest-filename": "error_prone_parent-2.43.0.pom"
+    "url": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_parent/2.48.0/error_prone_parent-2.48.0.pom",
+    "sha512": "e8d1088ae2fa57b87a117649bfe32a625c17b151fc793e460f94d13c913e5998df2b48e18e4b1d3da640fdfd62c4729fed429eda48d1f8d2437b5c798f7e5729",
+    "dest": "./offline-repository/com/google/errorprone/error_prone_parent/2.48.0",
+    "dest-filename": "error_prone_parent-2.48.0.pom"
   },
   {
     "type": "file",
