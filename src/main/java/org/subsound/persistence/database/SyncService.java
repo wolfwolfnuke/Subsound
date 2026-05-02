@@ -134,7 +134,8 @@ public class SyncService {
             logger.info("Finished caching thumbnails success={} failures={}", thumbSuccess, thumbFailures);
 
             var elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
-            logger.info("Synced {} artists, {} albums, {} songs, {} playlists in {}ms", stats.artists, stats.albums, stats.songs, stats.playlists, elapsedMillis);
+            // warn level to make sure we always print this summary
+            logger.warn("Synced {} artists, {} albums, {} songs, {} playlists, thumbSuccess={} thumbFailures={} in {}ms", stats.artists, stats.albums, stats.songs, stats.playlists, thumbSuccess, thumbFailures, elapsedMillis);
             logger.info("Full sync completed for server: {}", serverId);
             return stats;
         } catch (Exception e) {
