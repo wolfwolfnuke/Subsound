@@ -65,6 +65,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
+import static org.gnome.gtk.Align.FILL;
 import static org.subsound.utils.Utils.addHover;
 import static org.subsound.utils.Utils.cssClasses;
 import static org.subsound.utils.Utils.formatBytesSI;
@@ -380,22 +381,36 @@ public class AlbumInfoPage extends Box implements StateListener {
         private @NonNull Popover getPopover() {
             // Context menu popover with Stack for submenu navigation
             var stack = new Stack();
+            stack.setHexpand(true);
+            stack.setVexpand(true);
+            stack.setHalign(FILL);
 
             // Main menu content
             var menuContent = Box.builder()
                     .setOrientation(VERTICAL)
+                    .setHexpand(true)
+                    .setHalign(FILL)
                     .setSpacing(2)
-                    .setMarginTop(4)
-                    .setMarginBottom(4)
-                    .setMarginStart(4)
-                    .setMarginEnd(4)
+                    //.setMarginTop(4)
+                    //.setMarginBottom(4)
+                    //.setMarginStart(4)
+                    //.setMarginEnd(4)
                     .build();
 
-            var menuPopover = new Popover();
             var menuClamp = new Clamp();
             menuClamp.setMaximumSize(220);
             menuClamp.setChild(stack);
-            menuPopover.setChild(menuClamp);
+
+            var scrolledWindow = ScrolledWindow.builder()
+                    .setChild(menuClamp)
+                    .setMinContentHeight(200)
+                    .setMaxContentHeight(400)
+                    .setMinContentWidth(menuClamp.getMaximumSize())
+                    .setPropagateNaturalHeight(true)
+                    .build();
+
+            var menuPopover = new Popover();
+            menuPopover.setChild(scrolledWindow);
 
             var playMenuItem = menuItem("Play");
             playMenuItem.onClicked(() -> {
@@ -460,11 +475,14 @@ public class AlbumInfoPage extends Box implements StateListener {
             // Playlist selection submenu
             var playlistsView = Box.builder()
                     .setOrientation(VERTICAL)
+                    .setHexpand(true)
+                    .setVexpand(true)
+                    .setHalign(FILL)
                     .setSpacing(2)
-                    .setMarginTop(4)
-                    .setMarginBottom(4)
-                    .setMarginStart(4)
-                    .setMarginEnd(4)
+                    //.setMarginTop(4)
+                    //.setMarginBottom(4)
+                    //.setMarginStart(4)
+                    //.setMarginEnd(4)
                     .build();
 
             var backButton = menuItem("\u2190 Back");
@@ -514,6 +532,8 @@ public class AlbumInfoPage extends Box implements StateListener {
             var button = new Button();
             button.setChild(label);
             button.addCssClass("flat");
+            button.setHalign(FILL);
+            button.setHexpand(true);
             return button;
         }
 
