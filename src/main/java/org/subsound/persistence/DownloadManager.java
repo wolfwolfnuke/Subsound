@@ -15,7 +15,6 @@ import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -38,7 +37,6 @@ public class DownloadManager implements DownloadNotifier {
 
     private final List<Consumer<DownloadManagerEvent>> listeners = new CopyOnWriteArrayList<>();
     private final ConcurrentHashMap<String, DownloadQueueItem> downloadQueue = new ConcurrentHashMap<>();
-    private final Set<String> queuedIds = ConcurrentHashMap.newKeySet();
     private volatile boolean running = true;
 
     public DownloadManager(
@@ -52,9 +50,6 @@ public class DownloadManager implements DownloadNotifier {
         // Warm both caches from DB in a single query: queuedIds tracks non-CACHED,
         // songStatusCache holds the full item so lookups don't round-trip to DB.
         dbService.listDownloadQueue(List.of(DownloadStatus.values())).forEach(item -> {
-            if (item.status() != DownloadStatus.CACHED) {
-                queuedIds.add(item.songId());
-            }
             downloadQueue.put(item.songId(), item);
         });
         startQueueProcessor();
@@ -81,11 +76,7 @@ public class DownloadManager implements DownloadNotifier {
         // Rehydrate in-memory maps from the DB. CACHED rows are gone; the rest
         // are PENDING now. Mirrors the warm-up loop in the constructor.
         this.downloadQueue.clear();
-        this.queuedIds.clear();
         dbService.listDownloadQueue(List.of(DownloadStatus.values())).forEach(item -> {
-            if (item.status() != DownloadStatus.CACHED) {
-                queuedIds.add(item.songId());
-            }
             downloadQueue.put(item.songId(), item);
         });
 
@@ -128,7 +119,7 @@ public class DownloadManager implements DownloadNotifier {
         return Optional.ofNullable(downloadQueue.get(songId));
     }
     // loadSong loads fresh data from db
-    private Optional<DownloadQueueItem> loadSong(String songId) {
+    private Optional<DownloadQueueItem> getDownloadItemFromDb(String songId) {
         return dbService.getDownloadQueueItem(songId);
     }
 
@@ -137,15 +128,10 @@ public class DownloadManager implements DownloadNotifier {
         if (current.isPresent() && current.get().status() == DownloadStatus.COMPLETED) {
             return;
         }
-        queuedIds.add(songInfo.id());
         dbService.addToDownloadQueue(songInfo);
         // update cached data:
-        this.loadSong(songInfo.id()).ifPresent(s -> downloadQueue.put(songInfo.id(), s));
+        this.getDownloadItemFromDb(songInfo.id()).ifPresent(s -> downloadQueue.put(songInfo.id(), s));
         this.publishEvent(songInfo.id());
-    }
-
-    public int getQueuedCount() {
-        return queuedIds.size();
     }
 
     public record DownloadCounts(int completed, int total) {
@@ -169,13 +155,12 @@ public class DownloadManager implements DownloadNotifier {
     }
 
     public void removeFromQueue(String songId) {
-        queuedIds.remove(songId);
         var current = getSongStatus(songId);
         if (current.isPresent() && current.get().status().isDownloaded()) {
             // File is on disk. keep it available offline but remove from explicit download list:
             dbService.updateDownloadProgress(songId, DownloadStatus.CACHED, 1.0, null);
             // update cached data:
-            this.loadSong(songId).ifPresent(s -> downloadQueue.put(s.songId(), s));
+            this.getDownloadItemFromDb(songId).ifPresent(s -> downloadQueue.put(s.songId(), s));
         } else {
             // Not yet downloaded (PENDING / DOWNLOADING / FAILED) — remove entirely
             dbService.removeFromDownloadQueue(songId);
@@ -298,7 +283,7 @@ public class DownloadManager implements DownloadNotifier {
                 log.warn("Song marked as {} but cache file is missing — re-downloading: {}",
                         existingDownloaded.status(), songInfo.id());
                 dbService.updateDownloadProgress(songInfo.id(), DownloadStatus.PENDING, 0.0, null);
-                this.loadSong(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
+                this.getDownloadItemFromDb(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
                 this.publishEvent(songInfo.id());
             }
         }
@@ -335,8 +320,7 @@ public class DownloadManager implements DownloadNotifier {
 
         if (existing != null) {
             dbService.updateDownloadProgress(songInfo.id(), DownloadStatus.COMPLETED, 1.0, null, checksum);
-            queuedIds.remove(songInfo.id());
-            this.loadSong(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
+            this.getDownloadItemFromDb(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
             this.publishEvent(songInfo.id());
         } else {
             // Persist with the transcodeInfo we actually used — markAsCached reads
@@ -353,7 +337,7 @@ public class DownloadManager implements DownloadNotifier {
         }
         dbService.addToCacheTracking(songInfo, checksum);
         // update cached data:
-        this.loadSong(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
+        this.getDownloadItemFromDb(songInfo.id()).ifPresent(s -> downloadQueue.put(s.songId(), s));
         this.publishEvent(songInfo.id());
     }
 
@@ -459,7 +443,7 @@ public class DownloadManager implements DownloadNotifier {
             }
 
             this.dbService.updateDownloadProgress(item.songId(), DownloadStatus.COMPLETED, 1.0, null, checksum);
-            this.loadSong(item.songId()).ifPresent(s -> downloadQueue.put(s.songId(), s));
+            this.getDownloadItemFromDb(item.songId()).ifPresent(s -> downloadQueue.put(s.songId(), s));
             this.publishEvent(item.songId());
             log.info("Downloaded song: {} with checksum: {}", item.songId(), checksum);
         } catch (Exception e) {
