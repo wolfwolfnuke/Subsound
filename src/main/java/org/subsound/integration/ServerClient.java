@@ -86,7 +86,8 @@ public interface ServerClient {
             Optional<Integer> folderCount,
             Optional<Instant> lastScan,
             Optional<String> serverVersion,
-            boolean isOpenSubsonic
+            boolean isOpenSubsonic,
+            Optional<SubsonicClientV2.OpenSubsonicExtensions> openSubsonicExtensions
     ) {}
 
     record TranscodedStream(

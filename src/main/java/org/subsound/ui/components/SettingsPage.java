@@ -25,6 +25,7 @@ import org.subsound.utils.Utils;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.gnome.gtk.Orientation.VERTICAL;
 import static org.subsound.ui.components.Classes.destructiveAction;
@@ -42,6 +43,8 @@ public class SettingsPage extends Box {
     private final ActionRow serverVersionLabel;
     private final ActionRow apiVersionLabel;
     private final ActionRow serverOpenSubsonic;
+    private final PreferencesGroup serverOpenSubsonicGroup = new PreferencesGroup();
+    private List<ActionRow> serverOpenSubsonicFeatureList = List.of();
     private final PreferencesGroup localSettings;
     private final PreferencesGroup transcodeSettings;
     private final ComboRow audioFormatCombo;
@@ -150,6 +153,9 @@ public class SettingsPage extends Box {
         this.serverInformation.add(serverVersionLabel);
         this.serverInformation.add(apiVersionLabel);
         this.serverInformation.add(serverOpenSubsonic);
+        this.serverOpenSubsonicGroup.setTitle("OpenSubsonic extensions");
+        this.serverOpenSubsonicFeatureList.forEach(this.serverOpenSubsonicGroup::add);
+        this.serverOpenSubsonicGroup.setVisible(false);
 
         this.transcodeSettings = new PreferencesGroup();
         this.transcodeSettings.setTitle("Transcode Settings");
@@ -232,6 +238,7 @@ public class SettingsPage extends Box {
         this.centerBox = borderBox(VERTICAL, 8).setSpacing(8).build();
         this.centerBox.append(this.form);
         this.centerBox.append(this.serverInformation);
+        this.centerBox.append(this.serverOpenSubsonicGroup);
         this.centerBox.append(this.serverLibrary);
         this.centerBox.append(this.syncGroup);
         this.centerBox.append(this.transcodeSettings);
@@ -271,6 +278,26 @@ public class SettingsPage extends Box {
             this.serverVersionLabel.setSubtitle(serverInfo.serverVersion().orElse("Unknown"));
             this.apiVersionLabel.setSubtitle(serverInfo.apiVersion());
             this.serverOpenSubsonic.setSubtitle(serverInfo.isOpenSubsonic() ? "Yes" : "No");
+            if (serverInfo.openSubsonicExtensions().isPresent()) {
+                var extensions = serverInfo.openSubsonicExtensions().get();
+                this.serverOpenSubsonicFeatureList.forEach(this.serverOpenSubsonicGroup::remove);
+                this.serverOpenSubsonicFeatureList = extensions.list().stream()
+                        .map(ext -> {
+                            var row = newRow(ext.name());
+                            var subtitle = ext.versions().stream()
+                                    .map(v -> "v%d".formatted(v))
+                                    .collect(Collectors.joining(", "));
+                            row.setSubtitle(subtitle);
+                            return row;
+                        })
+                        .toList();
+                this.serverOpenSubsonicFeatureList.forEach(this.serverOpenSubsonicGroup::add);
+                this.serverOpenSubsonicGroup.setVisible(true);
+            } else {
+                this.serverOpenSubsonicGroup.setVisible(false);
+                this.serverOpenSubsonicFeatureList.forEach(this.serverOpenSubsonicGroup::remove);
+                this.serverOpenSubsonicFeatureList = List.of();
+            }
             this.librarySongsRow.setSubtitle("%,d".formatted(serverInfo.songCount()));
             this.libraryQuickScanRow.setSensitive(isNavidrome);
             serverInfo.lastScan().ifPresent(then -> {

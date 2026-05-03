@@ -1193,6 +1193,7 @@ public class SubsonicClientV2 implements ServerClient {
         Optional<Instant> lastScan = scan.lastScan() != null ? Optional.of(scan.lastScan()) : Optional.empty();
         Optional<String> serverVersion = inner.serverVersion != null ? Optional.of(inner.serverVersion) : Optional.empty();
         String apiVersion = inner.version != null ? inner.version : API_VERSION;
+        var extensions = this.supportedExtensions.get();
         return new ServerInfo(
                 ofNullable(inner.type),
                 apiVersion,
@@ -1200,7 +1201,8 @@ public class SubsonicClientV2 implements ServerClient {
                 folderCount,
                 lastScan,
                 serverVersion,
-                inner.openSubsonic
+                inner.openSubsonic,
+                extensions
         );
     }
 

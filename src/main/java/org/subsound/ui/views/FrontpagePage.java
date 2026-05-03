@@ -190,7 +190,8 @@ public class FrontpagePage extends Box implements AppManager.StateListener {
                             Optional.empty(),
                             Optional.empty(),
                             Optional.empty(),
-                            false
+                            false,
+                            Optional.empty()
                     );
                 }
                 var cfg = this.appManager.getConfig().serverConfig;
