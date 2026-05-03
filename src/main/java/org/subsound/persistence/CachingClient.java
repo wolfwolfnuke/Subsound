@@ -390,7 +390,18 @@ public class CachingClient implements ServerClient {
 
     @Override
     public ServerInfo getServerInfo() {
-        return delegate.getServerInfo();
+        // Fast-path when offline:
+        // Even after the app knows it's offline, or we started without network,
+        // the frontpage hangs for a long time waiting on DNS or a response before it finally fails and reload in offline mode.
+        if (isOffline()) {
+            throw new IllegalStateException("Cannot fetch server info while offline");
+        }
+        try {
+            return delegate.getServerInfo();
+        } catch (Exception e) {
+            detectOffline(e);
+            throw e;
+        }
     }
 
     @Override
