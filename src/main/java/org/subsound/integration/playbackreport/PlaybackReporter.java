@@ -31,7 +31,13 @@ public class PlaybackReporter implements AppManager.StateListener, AutoCloseable
 
     public CompletableFuture<ReportNowPlaying> reportNowPlayingAsync(ReportNowPlaying report) {
         return CompletableFuture.supplyAsync(() -> {
-            clientSupplier.get().nowPlaying(report);
+            var client = clientSupplier.get();
+            // during startup, or first onboarding, client may not be ready yet, but since AppState keeps changing,
+            // we get notified in PlaybackReporter.onStateChanged()
+            if (client == null) {
+                return report;
+            }
+            client.nowPlaying(report);
             log.info("PlaybackReporter.reportNowPlayingAsync: reported: {}", report);
             return report;
         }, executor).handleAsync((ok, throwable) -> {
