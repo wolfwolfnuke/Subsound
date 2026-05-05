@@ -282,12 +282,8 @@ public class PlaylistsListView extends Box {
             case NORMAL -> Optional.of(this.appManager.useClient(cl -> cl.getPlaylist(playlist.id())).songs());
             case STARRED -> Optional.<List<ServerClient.SongInfo>>empty();
             case DOWNLOADED -> {
-                var downloads = this.appManager.getDownloadQueue();
-                var futures = downloads.stream()
-                        .map(d -> Utils.doAsync(() -> this.appManager.useClient(cl -> cl.getSong(d.songId()))))
-                        .toList();
-                var list = futures.stream().map(java.util.concurrent.CompletableFuture::join).toList();
-                yield Optional.of(list);
+                var downloads = this.appManager.listDownloadedSongInfos();
+                yield Optional.of(downloads);
             }
         }).thenApply(data -> {
             if (playlist.kind() == PlaylistKind.STARRED) {
