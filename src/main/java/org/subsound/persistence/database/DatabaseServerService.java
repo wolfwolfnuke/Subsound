@@ -450,6 +450,32 @@ public class DatabaseServerService {
         return songs;
     }
 
+    /**
+     * Returns every song that has any row in {@code download_queue} for this server.
+     * One DB round trip; intended for the Downloads playlist view to avoid a per-song server fan-out.
+     */
+    public List<DBSong> listDownloadedSongs() {
+        List<DBSong> songs = new ArrayList<>();
+        String sql = """
+                SELECT s.* FROM songs s
+                JOIN download_queue dq ON s.id = dq.song_id AND s.server_id = dq.server_id
+                WHERE dq.server_id = ?
+                """;
+        try (Connection conn = database.openConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, this.serverId.toString());
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    songs.add(mapResultSetToSong(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to list downloaded songs for server: {}", serverId, e);
+            throw new RuntimeException("Failed to list downloaded songs", e);
+        }
+        return songs;
+    }
+
     public List<DBSong> listSongsByStarredAt() {
         List<DBSong> songs = new ArrayList<>();
         String sql = "SELECT * FROM songs WHERE server_id = ? AND starred_at_ms IS NOT NULL ORDER BY starred_at_ms DESC";
@@ -515,7 +541,7 @@ public class DatabaseServerService {
         return Optional.empty();
     }
 
-    private DBSong mapResultSetToSong(ResultSet rs) throws SQLException {
+    private static DBSong mapResultSetToSong(ResultSet rs) throws SQLException {
         int year = rs.getInt("year");
         Optional<Integer> yearOptional = rs.wasNull() ? Optional.empty() : Optional.of(year);
 

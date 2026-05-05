@@ -63,6 +63,10 @@ public class DownloadManager implements DownloadNotifier {
         return dbService.listDownloadQueue();
     }
 
+    public List<org.subsound.persistence.database.DBSong> listDownloadedDBSongs() {
+        return dbService.listDownloadedSongs();
+    }
+
     public void resetSongCache() {
         // Snapshot every song we're currently tracking — each will need a UI
         // refresh once we've reset the DB state below.

@@ -495,6 +495,16 @@ public class AppManager {
         return this.gSongStore;
     }
 
+    public List<ServerClient.SongInfo> listDownloadedSongInfos() {
+        var cl = this.client.get();
+        if (cl == null) {
+            return List.of();
+        }
+        return this.downloadManager.listDownloadedDBSongs().stream()
+                .map(cl::dbSongToSongInfo)
+                .toList();
+    }
+
     public record AlbumInfo(
             ServerClient.AlbumInfo album,
             List<GSongInfo> songs
