@@ -58,7 +58,17 @@
   </branding>
 
   <releases>
-    <release version="@version@" date="2026-05-02">
+    <release version="@version@" date="2026-05-06">
+      <description>
+        <ul>
+          <li>New: Settings page now shows which OpenSubsonic extensions your server supports</li>
+          <li>Improved: app startup is faster when the server is unreachable or you are offline</li>
+          <li>Improved: opening the Downloads playlist is now much faster for large libraries</li>
+          <li>Improved: album action menu is properly sized</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.7.0" date="2026-05-02">
       <description>
         <ul>
           <li>New: redesigned playback scrubber with a cleaner look and feel</li>
