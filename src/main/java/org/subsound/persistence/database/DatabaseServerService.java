@@ -460,6 +460,7 @@ public class DatabaseServerService {
                 SELECT s.* FROM songs s
                 JOIN download_queue dq ON s.id = dq.song_id AND s.server_id = dq.server_id
                 WHERE dq.server_id = ?
+                  AND dq.status != 'CACHED'
                 """;
         try (Connection conn = database.openConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
