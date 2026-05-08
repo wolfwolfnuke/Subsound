@@ -118,13 +118,17 @@ public class PlayQueue implements AutoCloseable, PlaybinPlayer.OnStateChanged {
     public CompletableFuture<Void> playAndReplaceQueue(PlayerAction.PlayAndReplaceQueue a) {
         return Utils.doAsync(() -> {
             this.playContext = Optional.ofNullable(a.playContext());
-            this.replaceQueueSlots(a.queue(), a.position()).join();
-            // Use actual position from queue state (may differ from a.position() after shuffle)
-            int positionToPlay;
-            synchronized (lock) {
-                positionToPlay = this.position.orElse(a.position());
+            int targetPos = a.position();
+
+            var queueFuture = replaceQueueSlots(a.queue(), a.position());
+
+            if (targetPos >= 0 && targetPos < a.queue().size()) {
+                var targetSong = songstore.newInstance(a.queue().get(targetPos).song());
+                this.onPlay.accept(targetSong);
             }
-            this.playPosition(positionToPlay);
+
+            // Wait for the queue display to finish rebuilding before returning.
+            queueFuture.join();
         });
     }
 
