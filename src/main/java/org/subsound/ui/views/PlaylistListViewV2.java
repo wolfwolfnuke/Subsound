@@ -822,7 +822,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var pos = state.queue().position();
         if (prevSongId.equals(nextSongId)
             && prev.nowPlayingState() == nowPlayingState
-            && prev.position() == pos
+            && prev.position().equals(pos)
             && prev.playingItemId().equals(playingItemId)) {
             return prev;
         }
