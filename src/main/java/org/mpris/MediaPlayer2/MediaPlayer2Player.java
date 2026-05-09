@@ -61,6 +61,7 @@ public interface MediaPlayer2Player extends DBusInterface {
     void PlayPause();
     void Stop();
     void Play();
+    void Shuffle(boolean enable);
     void Seek(long x);
     void OpenUri(String uri);
     void SetPosition(String trackId, long position);

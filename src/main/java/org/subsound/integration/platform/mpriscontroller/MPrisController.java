@@ -160,6 +160,15 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
     }
 
     @Override
+    public void Shuffle(boolean enable) {
+        var playMode = enable ? PlayerAction.PlayMode.SHUFFLE : PlayerAction.PlayMode.NORMAL;
+        log.info("Shuffle enable={} setMode={}", enable, playMode);
+        Utils.doAsync(() -> {
+            this.appManager.handleAction(new PlayerAction.SetPlayMode(playMode));
+        });
+    }
+
+    @Override
     public void Stop() {
         log.info("Stop");
         this.appManager.pause();
@@ -290,6 +299,37 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
         log.info("MprisController.Set {} {}", _interfaceName, _propertyName);
         if (MprisApplicationProperties.dbusInterfaceName.equals(_interfaceName)) {
             this.mprisApplicationProperties.Set(_interfaceName, _propertyName, _value);
+        }
+        if ("org.mpris.MediaPlayer2.Player".equals(_interfaceName)) {
+            switch (_propertyName) {
+                case "Position" -> {
+                    var position = (long) _value;
+                    log.info("Set Position to {}", position);
+                    Utils.doAsync(() -> {
+                        this.appManager.handleAction(new PlayerAction.SeekRelative(Duration.ofNanos(position * 1000L)));
+                    });
+                }
+                case "LoopStatus" -> {
+                    // LoopStatus is a string enum:
+                    //    * None: The playback will stop when there are no more tracks to play
+                    //    * Track: The current track will start again from the begining once it has finished playing
+                    //    * Playlist: The playback loops through a list of tracks (not supported yet)
+                    log.info("Set LoopStatus to {}", _value);
+                    String nextMode = (String) _value;
+                    var playMode = "Track".equals(nextMode) ? PlayerAction.PlayMode.REPEAT_ONE : PlayerAction.PlayMode.NORMAL;
+                    Utils.doAsync(() -> {
+                        this.appManager.handleAction(new PlayerAction.SetPlayMode(playMode));
+                    });
+                }
+                case "Shuffle" -> {
+                    boolean enable = (boolean) _value;
+                    log.info("Set Shuffle to {}", enable);
+                    var playMode = enable ? PlayerAction.PlayMode.SHUFFLE : PlayerAction.PlayMode.NORMAL;
+                    Utils.doAsync(() -> {
+                        this.appManager.handleAction(new PlayerAction.SetPlayMode(playMode));
+                    });
+                }
+            }
         }
     }
 
