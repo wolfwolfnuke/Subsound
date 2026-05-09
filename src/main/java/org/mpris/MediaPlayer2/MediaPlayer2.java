@@ -1,6 +1,7 @@
 package org.mpris.MediaPlayer2;
 
 import org.freedesktop.dbus.annotations.DBusInterfaceName;
+import org.freedesktop.dbus.annotations.DBusProperty;
 import org.freedesktop.dbus.interfaces.DBusInterface;
 
 /** [https://specifications.freedesktop.org/mpris-spec/latest/Media_Player.html]
@@ -17,6 +18,15 @@ import org.freedesktop.dbus.interfaces.DBusInterface;
  * - SupportedMimeTypes	    as	Read only
  * */
 @DBusInterfaceName("org.mpris.MediaPlayer2")
+@DBusProperty(name = "CanQuit",             type = Boolean.class,  access = DBusProperty.Access.READ)
+@DBusProperty(name = "Fullscreen",          type = Boolean.class,  access = DBusProperty.Access.READ_WRITE)
+@DBusProperty(name = "CanSetFullscreen",    type = Boolean.class,  access = DBusProperty.Access.READ)
+@DBusProperty(name = "CanRaise",            type = Boolean.class,  access = DBusProperty.Access.READ)
+@DBusProperty(name = "HasTrackList",        type = Boolean.class,  access = DBusProperty.Access.READ)
+@DBusProperty(name = "Identity",            type = String.class,   access = DBusProperty.Access.READ)
+@DBusProperty(name = "DesktopEntry",        type = String.class,   access = DBusProperty.Access.READ)
+@DBusProperty(name = "SupportedUriSchemes", type = String[].class, access = DBusProperty.Access.READ)
+@DBusProperty(name = "SupportedMimeTypes",  type = String[].class, access = DBusProperty.Access.READ)
 public interface MediaPlayer2 extends DBusInterface {
     /** Brings the media player's user interface to the front using any appropriate mechanism available.
      *

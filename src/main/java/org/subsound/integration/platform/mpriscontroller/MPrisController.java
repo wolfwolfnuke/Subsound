@@ -119,10 +119,10 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
 
     @Override
     public void Raise() {
+        log.info("Raise");
         Utils.doAsync(() -> {
             this.appManager.handleAction(new PlayerAction.RaiseWindow());
         });
-        log.info("Raise");
     }
 
     @Override
@@ -273,7 +273,7 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
             case MprisApplicationProperties.dbusInterfaceName ->
                     this.mprisApplicationProperties.Get(_interfaceName, _propertyName);
             case MPRISPlayerState.interfaceName -> (A)this.getPlayerProperty(_interfaceName, _propertyName).getValue();
-            default -> throw new IllegalArgumentException("Get: Unexpected value: " + _interfaceName);
+            default -> null;
         };
     }
 
@@ -298,7 +298,7 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
         return switch (_interfaceName) {
             case MprisApplicationProperties.dbusInterfaceName -> this.mprisApplicationProperties.GetAll(_interfaceName);
             case MPRISPlayerState.interfaceName -> this.playerState.get().GetAll(_interfaceName);
-            default -> throw new IllegalArgumentException("GetAll: Unexpected value: " + _interfaceName);
+            default -> Map.of();
         };
     }
 
