@@ -281,7 +281,7 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
         return switch (_interfaceName) {
             case MprisApplicationProperties.dbusInterfaceName ->
                     this.mprisApplicationProperties.Get(_interfaceName, _propertyName);
-            case MPRISPlayerState.interfaceName -> (A)this.getPlayerProperty(_interfaceName, _propertyName).getValue();
+            case MPRISPlayerState.interfaceName -> (A)this.getPlayerProperty(_interfaceName, _propertyName);
             default -> null;
         };
     }
@@ -669,7 +669,7 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
         public <A> A Get(String _interfaceName, String _propertyName) {
             log.info("{}: Get {}/{}", interfaceName, _interfaceName, _propertyName);
             //noinspection unchecked
-            return (A) GetAll(_interfaceName).get(_propertyName).getValue();
+            return (A) GetAll(_interfaceName).get(_propertyName);
         }
 
         @Override
