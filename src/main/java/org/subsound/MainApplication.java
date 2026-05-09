@@ -374,6 +374,7 @@ public class MainApplication {
                 .build();
         window.addController(shortcutController);
 
+        this.appManager.setWindow(this.window);
         // Capture window size before it's destroyed
         window.onCloseRequest(() -> {
             this.lastWindowSize = new WindowSize(window.getWidth(), window.getHeight());

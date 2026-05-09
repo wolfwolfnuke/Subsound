@@ -3,6 +3,7 @@ package org.subsound.app.state;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.soabase.recordbuilder.core.RecordBuilderFull;
+import org.gnome.adw.ApplicationWindow;
 import org.gnome.adw.ToastOverlay;
 import org.gnome.gio.ListStore;
 import org.slf4j.Logger;
@@ -118,6 +119,7 @@ public class AppManager {
     private final AtomicReference<Observation> lastObservation = new AtomicReference<>();
     private final AtomicInteger loadGeneration = new java.util.concurrent.atomic.AtomicInteger(0);
 
+    private Optional<ApplicationWindow> window = Optional.empty();
     private ToastOverlay toastOverlay;
     private AppNavigation navigator;
 
@@ -940,6 +942,7 @@ public class AppManager {
                     }
                     onQuit.run();
                 }
+                case PlayerAction.RaiseWindow _ -> Utils.runOnMainThread(() -> this.window.ifPresent(ApplicationWindow::present));
             }
         });
     }
@@ -1461,5 +1464,9 @@ public class AppManager {
                 stateListener.onStateChanged(state);
             }
         });
+    }
+
+    public void setWindow(ApplicationWindow window) {
+        this.window = Optional.ofNullable(window);
     }
 }

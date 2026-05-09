@@ -119,6 +119,9 @@ public class MPrisController implements MediaPlayer2, MediaPlayer2Player, AppMan
 
     @Override
     public void Raise() {
+        Utils.doAsync(() -> {
+            this.appManager.handleAction(new PlayerAction.RaiseWindow());
+        });
         log.info("Raise");
     }
 
