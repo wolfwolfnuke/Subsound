@@ -109,13 +109,13 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     private final SingleSelection<GPlaylistEntry> selectionModel;
     private final SearchBar searchBar;
     private final SearchEntry searchEntry;
-    // Bound cells indexed by queueItemId (unique per entry: playlistId||songId||position).
-    // ListView only ever has one cell bound to a given entry at a time, so values are scalar.
+    // Bound cells indexed by stable server songId. Each entry's qid lives on the cell's
+    // boundEntry, so disambiguation between duplicate occurrences is a linear scan over
+    // the per-songId list. Typical lists are size 1 (constant time); the pathological case
+    // is a playlist of N copies of the same song, which becomes O(N).
     // All access happens on the GTK main thread.
-    // The hashmaps work as a cache for updating now-playing items instead of having every cell connect twice for
-    // playing status updates that only touch 2 cells (prev and next item)
-    private final HashMap<String, NowPlayingCell> nowPlayingByQueueId = new HashMap<>();
-    private final HashMap<String, TitleArtistCell> titleByQueueId = new HashMap<>();
+    private final HashMap<String, List<NowPlayingCell>> nowPlayingBySongId = new HashMap<>();
+    private final HashMap<String, List<TitleArtistCell>> titleBySongId = new HashMap<>();
     private final AtomicReference<ServerClient.PlaylistSimple> currentPlaylist = new AtomicReference<>();
     private volatile boolean reloadNeeded = false;
     private volatile int lastKnownSongCount = 0;
@@ -157,6 +157,10 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
 
         public @Nullable String getQueueItemId() {
             return queueItemId;
+        }
+
+        public PlayItemId playItemId() {
+            return new PlayItemId(gSong.getSongInfo().id(), queueItemId);
         }
 
         public GSongInfo gSong() {
@@ -269,9 +273,11 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
             var child = listItem.getChild();
             if (child instanceof NowPlayingCell cell) {
-                var playingItemId = appManager.getState().queue().playingItemId();
-                cell.bind(entry, listItem, prevState.get(), playingItemId);
-                nowPlayingByQueueId.put(entry.getQueueItemId(), cell);
+                var currentState = appManager.getState();
+                var playingItem = buildPlayItemId(currentState);
+                var nowPlayingState = getNowPlayingState(currentState.player().state());
+                cell.bind(entry, listItem, nowPlayingState, playingItem);
+                nowPlayingBySongId.computeIfAbsent(entry.song().id(), _ -> new ArrayList<>()).add(cell);
             }
         });
         nowPlayingFactory.onUnbind(obj -> {
@@ -280,7 +286,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             var child = listItem.getChild();
             if (child instanceof NowPlayingCell cell) {
                 if (entry != null) {
-                    nowPlayingByQueueId.remove(entry.getQueueItemId(), cell);
+                    removeFromSongList(nowPlayingBySongId, entry.song().id(), cell);
                 }
                 cell.unbind();
             }
@@ -314,9 +320,9 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
             var child = listItem.getChild();
             if (child instanceof TitleArtistCell cell) {
-                var playingItemId = appManager.getState().queue().playingItemId();
-                cell.bind(entry, listItem, playingItemId);
-                titleByQueueId.put(entry.getQueueItemId(), cell);
+                var playingItem = buildPlayItemId(appManager.getState());
+                cell.bind(entry, listItem, playingItem);
+                titleBySongId.computeIfAbsent(entry.song().id(), _ -> new ArrayList<>()).add(cell);
             }
         });
         titleFactory.onUnbind(obj -> {
@@ -325,7 +331,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             var child = listItem.getChild();
             if (child instanceof TitleArtistCell cell) {
                 if (entry != null) {
-                    titleByQueueId.remove(entry.getQueueItemId(), cell);
+                    removeFromSongList(titleBySongId, entry.song().id(), cell);
                 }
                 cell.unbind();
             }
@@ -755,66 +761,141 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         }
         this.prevState.set(next);
         log.info("PlaylistListViewV2: onStateChanged: {} -> {}", prev, next);
-        var prevSongId = prev.songInfo().map(SongInfo::id).orElse("");
-        var nextSongId = next.songInfo().map(SongInfo::id).orElse("");
-        int prevPos = prev.position().orElse(-1);
-        int nextPos = next.position().orElse(-1);
-        var playingItemId = state.queue().playingItemId();
         var playingState = next.nowPlayingState();
 
-        // onStateChanged runs on an AppManager virtual thread. Marshal the whole cell fan-out
-        // onto the main thread in a single idle hop rather than once per cell (which would be
-        // ~2–4 idleAdds per visible row per state change).
-        boolean songOrPosChanged = !prevSongId.equals(nextSongId) || nextPos != prevPos;
+        // The playing-item identity (songId + queueItemId) is the source of truth. Triggering
+        // off songId/position alone misses the shuffle-activate case where only the queue's
+        // queueItemId changes while nowPlaying.song.id and queue.position stay the same.
+        boolean playingItemChanged = !prev.playingItem().equals(next.playingItem());
         boolean stateChanged = prev.nowPlayingState() != next.nowPlayingState();
-        if (!songOrPosChanged && !stateChanged) {
+        if (!playingItemChanged && !stateChanged) {
             return;
         }
-        var prevPlayingItemId = prev.playingItemId();
+        // Capture prev/next before the main-thread hop so the lambda sees the snapshot
+        // observed in this emission, not whatever the AtomicReference holds when it runs.
+        var prevPlaying = prev.playingItem();
+        var nextPlaying = next.playingItem();
+        var prevQid = prevPlaying.map(PlayItemId::queueItemId);
+        var nextQid = nextPlaying.map(PlayItemId::queueItemId);
+        boolean qidChanged = !prevQid.equals(nextQid);
         Utils.runOnMainThread(() -> {
-            // Clear the previously-playing row when the queue's playing slot changed.
-            if (songOrPosChanged) {
-                prevPlayingItemId.ifPresent(qid -> {
-                    var prevNow = nowPlayingByQueueId.get(qid);
-                    if (prevNow != null) {
-                        prevNow.updateCellIsPlaying(false, NowPlayingState.NONE);
-                    }
-                    var prevTitle = titleByQueueId.get(qid);
-                    if (prevTitle != null) {
-                        prevTitle.updateRow(false);
-                    }
-                });
+            // Only clear the previous cell if the qid actually moved. If the PlayItemId
+            // record changed only because its songId field shifted (transient mismatch
+            // between the nowPlaying and queue.playingItemId emissions), the cell is the
+            // same one we're about to re-highlight — clearing it would cause a flicker.
+            if (qidChanged) {
+                prevPlaying.ifPresent(this::clearHighlightFor);
             }
-            // Apply the new playing state to the now-current row.
-            playingItemId.ifPresent(qid -> {
-                var nowCell = nowPlayingByQueueId.get(qid);
-                if (nowCell != null) {
-                    nowCell.updateCellIsPlaying(true, playingState);
-                }
-                if (songOrPosChanged) {
-                    var titleCell = titleByQueueId.get(qid);
-                    if (titleCell != null) {
-                        titleCell.updateRow(true);
-                    }
-                }
-            });
+            nextPlaying.ifPresent(p -> applyHighlightFor(p, playingState));
         });
     }
+
+    /**
+     * Clear the highlight on cells matching {@code p}.
+     *
+     * <p>Looks up the per-songId list and scans for the cell whose currently-bound qid
+     * matches {@code p.queueItemId()}. If no exact qid match is found, the qid is treated
+     * as stale (typical after {@code setSongs()} rebuilt entries with shifted positions)
+     * and every cell in the songId list is cleared as a fallback.
+     */
+    private void clearHighlightFor(PlayItemId p) {
+        var nowList = nowPlayingBySongId.get(p.songId());
+        if (nowList != null) {
+            NowPlayingCell match = null;
+            for (var c : nowList) {
+                var be = c.boundEntry;
+                if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
+                    match = c;
+                    break;
+                }
+            }
+            if (match != null) {
+                match.updateCellIsPlaying(false, NowPlayingState.NONE);
+            } else {
+                for (var c : nowList) {
+                    c.updateCellIsPlaying(false, NowPlayingState.NONE);
+                }
+            }
+        }
+        var titleList = titleBySongId.get(p.songId());
+        if (titleList != null) {
+            TitleArtistCell match = null;
+            for (var c : titleList) {
+                var be = c.boundEntry;
+                if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
+                    match = c;
+                    break;
+                }
+            }
+            if (match != null) {
+                match.updateRow(false);
+            } else {
+                for (var c : titleList) {
+                    c.updateRow(false);
+                }
+            }
+        }
+    }
+
+    /**
+     * Highlight the cell whose qid matches {@code p}. No fallback — if the qid is stale,
+     * the highlight is missed on this emission and will be picked up next time the cell
+     * binds (cells call isPlayingEntry in {@code bind()}).
+     */
+    private void applyHighlightFor(PlayItemId p, NowPlayingState playingState) {
+        var nowList = nowPlayingBySongId.get(p.songId());
+        if (nowList != null) {
+            for (var c : nowList) {
+                var be = c.boundEntry;
+                if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
+                    c.updateCellIsPlaying(true, playingState);
+                    break;
+                }
+            }
+        }
+        var titleList = titleBySongId.get(p.songId());
+        if (titleList != null) {
+            for (var c : titleList) {
+                var be = c.boundEntry;
+                if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
+                    c.updateRow(true);
+                    break;
+                }
+            }
+        }
+    }
+
+    public record PlayItemId(String songId, String queueItemId) {}
 
     public record MiniState(
             Optional<SongInfo> songInfo,
             NowPlayingState nowPlayingState,
             Optional<ObjectIdentifier> playContext,
             Optional<Integer> position,
-            Optional<String> playingItemId
+            Optional<PlayItemId> playingItem
     ){}
+
+    private static Optional<PlayItemId> buildPlayItemId(AppManager.AppState state) {
+        var songId = state.nowPlaying().map(np -> np.song().id()).orElse("");
+        return state.queue().playingItemId().map(qid -> new PlayItemId(songId, qid));
+    }
+
+    private static <C> void removeFromSongList(HashMap<String, List<C>> map, String songId, C cell) {
+        var list = map.get(songId);
+        if (list != null) {
+            list.remove(cell);
+            if (list.isEmpty()) {
+                map.remove(songId);
+            }
+        }
+    }
 
     private MiniState selectState(@Nullable MiniState prev, AppManager.AppState state) {
         var npSong = state.nowPlaying().map(AppManager.NowPlaying::song);
         var nowPlayingState = getNowPlayingState(state.player().state());
-        var playingItemId = state.queue().playingItemId();
+        var playingItem = buildPlayItemId(state);
         if (prev == null) {
-            return new MiniState(npSong, nowPlayingState, state.queue().playContext(), state.queue().position(), playingItemId);
+            return new MiniState(npSong, nowPlayingState, state.queue().playContext(), state.queue().position(), playingItem);
         }
         var prevSongId = prev.songInfo().map(SongInfo::id).orElse("");
         var nextSongId = npSong.map(SongInfo::id).orElse("");
@@ -823,10 +904,10 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         if (prevSongId.equals(nextSongId)
             && prev.nowPlayingState() == nowPlayingState
             && prev.position().equals(pos)
-            && prev.playingItemId().equals(playingItemId)) {
+            && prev.playingItem().equals(playingItem)) {
             return prev;
         }
-        return new MiniState(npSong, nowPlayingState, playContext, pos, playingItemId);
+        return new MiniState(npSong, nowPlayingState, playContext, pos, playingItem);
     }
 
     private NowPlayingState getNowPlayingState(PlaybinPlayer.PlayerStates state) {
@@ -1196,7 +1277,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.append(overlay);
         }
 
-        void bind(GPlaylistEntry entry, ListItem listItem, MiniState state, Optional<String> playingItemId) {
+        void bind(GPlaylistEntry entry, ListItem listItem, NowPlayingState nowPlayingState, Optional<PlayItemId> playingItem) {
             this.boundEntry = entry;
             this.gSong = entry.gSong();
             this.listItem = listItem;
@@ -1205,16 +1286,12 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.positionSignal = listItem.onNotify(
                     "position", _ -> this.trackNumberLabel.setLabel("%d".formatted(listItem.getPosition() + 1))
             );
-            String songId = entry.gSong().getSongInfo().id();
-            boolean isPlaying = isPlayingEntry(entry.getQueueItemId(), playingItemId, songId);
-            updateCellIsPlaying(isPlaying, state.nowPlayingState());
+            boolean isPlaying = isPlayingEntry(entry.playItemId(), playingItem);
+            updateCellIsPlaying(isPlaying, nowPlayingState);
         }
 
-        private static boolean isPlayingEntry(@Nullable String entryQueueId, Optional<String> playingItemId, String songId) {
-            if (entryQueueId != null) {
-                return playingItemId.map(entryQueueId::equals).orElse(false);
-            }
-            return false;
+        private static boolean isPlayingEntry(PlayItemId entryItem, Optional<PlayItemId> playingItem) {
+            return playingItem.map(p -> p.queueItemId().equals(entryItem.queueItemId())).orElse(false);
         }
 
         void unbind() {
@@ -1307,7 +1384,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             this.append(inner);
         }
 
-        void bind(GPlaylistEntry entry, ListItem listItem, Optional<String> playingItemId) {
+        void bind(GPlaylistEntry entry, ListItem listItem, Optional<PlayItemId> playingItem) {
             this.gSong = entry.gSong();
             this.listItem = listItem;
             this.boundEntry = entry;
@@ -1323,15 +1400,12 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             }
             this.artistLabel.setArtists(artists);
             this.albumArt.update(info.coverArt().orElse(null));
-            boolean isPlaying = isPlayingEntry(entry.getQueueItemId(), playingItemId, info.id());
+            boolean isPlaying = isPlayingEntry(entry.playItemId(), playingItem);
             updateRow(isPlaying);
         }
 
-        private static boolean isPlayingEntry(@Nullable String entryQueueId, Optional<String> playingItemId, String songId) {
-            if (entryQueueId != null) {
-                return playingItemId.map(entryQueueId::equals).orElse(false);
-            }
-            return false;
+        private static boolean isPlayingEntry(PlayItemId entryItem, Optional<PlayItemId> playingItem) {
+            return playingItem.map(p -> p.queueItemId().equals(entryItem.queueItemId())).orElse(false);
         }
 
         void unbind() {
