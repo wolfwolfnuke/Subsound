@@ -58,7 +58,17 @@
   </branding>
 
   <releases>
-    <release version="@version@" date="2026-05-06">
+    <release version="@version@" date="2026-05-18">
+      <description>
+        <ul>
+          <li>New: desktop media controls can now toggle shuffle and repeat via MPRIS, and reflect the current mode</li>
+          <li>New: activating Subsound from desktop media controls now raises the window to the foreground</li>
+          <li>Bugfix: improved track meta sent over MPRIS</li>
+          <li>Bugfix: sometimes the currently playing row was not highlighted correctly after shuffle</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.7.1" date="2026-05-06">
       <description>
         <ul>
           <li>New: Settings page now shows which OpenSubsonic extensions your server supports</li>
