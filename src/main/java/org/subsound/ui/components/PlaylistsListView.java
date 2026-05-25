@@ -20,21 +20,23 @@ import org.gnome.gtk.Orientation;
 import org.gnome.gtk.ScrolledWindow;
 import org.gnome.gtk.SignalListItemFactory;
 import org.gnome.gtk.SingleSelection;
+import org.gnome.gtk.Stack;
+import org.gnome.gtk.StackTransitionType;
 import org.gnome.pango.EllipsizeMode;
 import org.javagi.gobject.SignalConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.subsound.app.state.AppManager;
 import org.subsound.app.state.PlayerAction;
+import org.subsound.app.state.PlaylistsStore;
 import org.subsound.app.state.PlaylistsStore.GPlaylist;
-import org.subsound.integration.ServerClient;
 import org.subsound.integration.ServerClient.PlaylistKind;
 import org.subsound.integration.ServerClient.PlaylistSimple;
 import org.subsound.ui.models.GSongStore;
 import org.subsound.ui.views.PlaylistListViewV2;
-import org.subsound.ui.views.StarredListView;
 import org.subsound.utils.Utils;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,10 +57,13 @@ public class PlaylistsListView extends Box {
     private final NavigationSplitView view;
     private final NavigationPage initialPage;
     private final NavigationPage page1;
-    private final StarredListView starredListView;
-    private final NavigationPage starredListPage;
     private final PlaylistListViewV2 playlistListView;
+    private final PlaylistListViewV2 starredPlaylistView;
     private final NavigationPage playlistPage;
+    private final NavigationPage starredPlaylistPage;
+    private final Stack contentStack;
+    private static final String STACK_LOADING = "loading";
+    private static final String STACK_CONTENT = "content";
     private final SingleSelection<GPlaylist> selectionModel;
     private final GSongStore songStore;
     private int currentIndex = 0;
@@ -70,25 +75,42 @@ public class PlaylistsListView extends Box {
         this.songStore = appManager.getSongStore();
         this.listModel = appManager.getPlaylistsListStore();
 
-        this.starredListView = new StarredListView(appManager.getStarredList(), appManager, appManager::navigateTo);
-        this.starredListView.setHalign(Align.FILL);
-        this.starredListView.setValign(Align.FILL);
-        this.starredListPage = NavigationPage.builder()
-                .setTag("starred")
-                .setChild(this.starredListView)
-                .setTitle("Starred")
-                .setHexpand(true)
-                .build();
-
         this.playlistListView = new PlaylistListViewV2(appManager, appManager::navigateTo);
         this.playlistListView.setHalign(Align.FILL);
         this.playlistListView.setValign(Align.FILL);
+
+        // Crossfade between the live ColumnView and a spinner during async loads.
+        // 150ms is short enough to feel responsive on cached fetches but long enough
+        // that the spinner registers visually when the server is slow.
+        this.contentStack = Stack.builder()
+                .setTransitionType(StackTransitionType.CROSSFADE)
+                .setTransitionDuration(150)
+                .setHexpand(true)
+                .setVexpand(true)
+                .build();
+        this.contentStack.addNamed(LoadingSpinner.fullscreen(""), STACK_LOADING);
+        this.contentStack.addNamed(this.playlistListView, STACK_CONTENT);
+        this.contentStack.setVisibleChildName(STACK_CONTENT);
+
         this.playlistPage = NavigationPage.builder()
                 .setTag("page-2")
-                .setChild(this.playlistListView)
+                .setChild(this.contentStack)
                 .setTitle("")
                 .setHexpand(true)
                 .build();
+
+        // Dedicated starred view bound reactively to the StarredListStore. Avoids the
+        // copy-into-ArrayList round-trip and lets star/unstar elsewhere reflect live here.
+        this.starredPlaylistView = new PlaylistListViewV2(appManager, appManager::navigateTo);
+        this.starredPlaylistView.setHalign(Align.FILL);
+        this.starredPlaylistView.setValign(Align.FILL);
+        this.starredPlaylistPage = NavigationPage.builder()
+                .setTag("page-2-starred")
+                .setChild(this.starredPlaylistView)
+                .setTitle("Starred")
+                .setHexpand(true)
+                .build();
+        this.starredPlaylistView.bindSource(appManager.getStarredList(), buildStarredPlaceholder());
 
         var b = Box.builder().setValign(Align.CENTER).setHalign(Align.CENTER).build();
         b.append(Label.builder().setLabel("Select a playlist to view").setCssClasses(cssClasses("title-1")).build());
@@ -257,10 +279,26 @@ public class PlaylistsListView extends Box {
         this.view.setVexpand(true);
         this.view.setHalign(Align.FILL);
         this.view.setValign(Align.BASELINE_FILL);
-        this.view.setContent(this.starredListPage);
+        this.view.setContent(this.initialPage);
         this.setHexpand(true);
         this.setVexpand(true);
         this.append(view);
+    }
+
+    private static PlaylistSimple buildStarredPlaceholder() {
+        // Bound at construction, before the playlists list has been populated. The actual
+        // PlaylistSimple shown in the title/UI comes from setSelectedPlaylist; this is
+        // just what bindSource hands to setSongs for the initial fill.
+        var now = Instant.now();
+        return new PlaylistSimple(
+                PlaylistsStore.STARRED_ID,
+                "Starred",
+                PlaylistKind.STARRED,
+                Optional.empty(),
+                0,
+                now,
+                now
+        );
     }
 
     public void preselect(String playlistId) {
@@ -278,34 +316,39 @@ public class PlaylistsListView extends Box {
     }
 
     private void setSelectedPlaylist(PlaylistSimple playlist) {
-        doAsync(() -> switch (playlist.kind()) {
-            case NORMAL -> Optional.of(this.appManager.useClient(cl -> cl.getPlaylist(playlist.id())).songs());
-            case STARRED -> Optional.<List<ServerClient.SongInfo>>empty();
-            case DOWNLOADED -> {
-                var downloads = this.appManager.listDownloadedSongInfos();
-                yield Optional.of(downloads);
-            }
-        }).thenApply(data -> {
-            if (playlist.kind() == PlaylistKind.STARRED) {
-                var currentPage = this.view.getContent();
-                if (currentPage == this.starredListPage) {
-                    return data;
-                }
-                Utils.runOnMainThread(() -> this.view.setContent(this.starredListPage));
-                return data;
-            }
-
-            if (data.isEmpty()) {
-                return Optional.<List<ServerClient.SongInfo>>empty();
-            }
-
-            var songs = data.get().stream().map(songStore::newInstance).toList();
-            this.playlistListView.setSongs(songs, playlist);
+        // Starred is bound reactively to its source store — no fetch, no splice;
+        // just swap pages so the user gets an instant transition.
+        if (playlist.kind() == PlaylistKind.STARRED) {
             Utils.runOnMainThread(() -> {
-                this.playlistPage.setTitle(playlist.name());
-                this.view.setContent(this.playlistPage);
+                this.starredPlaylistPage.setTitle(playlist.name());
+                this.view.setContent(this.starredPlaylistPage);
             });
+            return;
+        }
+
+        // Show the spinner before the page swap so the user sees a crossfade into the
+        // loading state, not a flash of the previous playlist's rows.
+        Utils.runOnMainThread(() -> {
+            this.contentStack.setVisibleChildName(STACK_LOADING);
+            this.playlistPage.setTitle(playlist.name());
+            this.view.setContent(this.playlistPage);
+        });
+
+        doAsync(() -> switch (playlist.kind()) {
+            case NORMAL -> this.appManager.useClient(cl -> cl.getPlaylist(playlist.id())).songs();
+            case DOWNLOADED -> this.appManager.listDownloadedSongInfos();
+            case STARRED -> throw new IllegalStateException("handled above");
+        }).thenApply(data -> {
+            var songs = data.stream().map(songStore::newInstance).toList();
+            this.playlistListView.setSongs(songs, playlist);
+            // setSongs hops to the main thread to splice; queue the page swap behind it
+            // so the spinner stays up until real rows are rendered.
+            Utils.runOnMainThread(() -> this.contentStack.setVisibleChildName(STACK_CONTENT));
             return data;
+        }).exceptionally(ex -> {
+            log.warn("setSelectedPlaylist failed for {}", playlist.id(), ex);
+            Utils.runOnMainThread(() -> this.contentStack.setVisibleChildName(STACK_CONTENT));
+            return null;
         });
     }
 
