@@ -3,6 +3,7 @@ package org.subsound.ui.views;
 import org.gnome.adw.AlertDialog;
 import org.gnome.adw.Clamp;
 import org.gnome.gdk.ModifierType;
+import org.gnome.gio.ListModel;
 import org.gnome.gio.ListStore;
 import org.gnome.glib.Type;
 import org.gnome.gobject.GObject;
@@ -116,11 +117,19 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     // All access happens on the GTK main thread.
     private final HashMap<String, List<NowPlayingCell>> nowPlayingBySongId = new HashMap<>();
     private final HashMap<String, List<TitleArtistCell>> titleBySongId = new HashMap<>();
+    // Direct refs to the two currently-highlighted cells, so clearing on the next state
+    // change is O(1) regardless of map state (qid drift, unbind leaks, etc.).
+    @Nullable private NowPlayingCell highlightedNowPlayingCell = null;
+    @Nullable private TitleArtistCell highlightedTitleCell = null;
     private final AtomicReference<ServerClient.PlaylistSimple> currentPlaylist = new AtomicReference<>();
     private volatile boolean reloadNeeded = false;
     private volatile int lastKnownSongCount = 0;
     @Nullable
     private SignalConnection<?> playlistNotifySignal = null;
+    @Nullable
+    private SignalConnection<?> sourceItemsChangedSignal = null;
+    @Nullable
+    private ListModel<GSongInfo> boundSource = null;
 
     /**
      * Wrapper GObject that pairs a GSongInfo with its original playlist position,
@@ -177,6 +186,10 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
 
         public void setPosition(int p) {
             this.position = p;
+        }
+
+        public void setQueueItemId(String qid) {
+            this.queueItemId = qid;
         }
     }
 
@@ -564,6 +577,16 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         var mapSignal = this.onMap(() -> {
             appManager.addOnStateChanged(this);
 
+            // Reconcile against current state — Gtk.Stack unmaps non-visible children, so
+            // onStateChanged emissions during a LOADING crossfade are dropped. Walking all
+            // bound cells here clears any stale highlight and applies the right one.
+            var currentAppState = appManager.getState();
+            var current = selectState(this.prevState.get(), currentAppState);
+            this.prevState.set(current);
+            var nextPlaying = current.playingItem();
+            var playingState = current.nowPlayingState();
+            Utils.runOnMainThread(() -> refreshAllHighlights(nextPlaying, playingState));
+
             var playlist = this.currentPlaylist.get();
             if (playlist == null) {
                 return;
@@ -582,6 +605,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 playlistNotifySignal.disconnect();
                 playlistNotifySignal = null;
             }
+            unbindSource();
             mapSignal.disconnect();
             unmapSignal.disconnect();
             activateSignal.disconnect();
@@ -752,6 +776,67 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         });
     }
 
+    /**
+     * Bind this view to a foreign {@link ListModel} of {@link GSongInfo}, so that adds/removes
+     * in the source store are reflected here without rebuilding the list. The initial contents
+     * are pushed through {@link #setSongs}; subsequent itemsChanged notifications from the
+     * source are translated to splices into this view's internal model.
+     *
+     * <p>Any prior binding is detached first. Call {@link #unbindSource} when the view is
+     * being discarded (also wired into {@code onDestroy}).
+     */
+    public void bindSource(ListModel<GSongInfo> source, ServerClient.PlaylistSimple playlist) {
+        unbindSource();
+        this.boundSource = source;
+
+        int n = source.getNItems();
+        var initial = new ArrayList<GSongInfo>(n);
+        for (int i = 0; i < n; i++) {
+            initial.add((GSongInfo) source.getItem(i));
+        }
+        setSongs(initial, playlist);
+
+        this.sourceItemsChangedSignal = source.onItemsChanged((position, nRemoved, nAdded) -> {
+            var current = this.currentPlaylist.get();
+            if (current == null) {
+                return;
+            }
+            var playlistId = current.id();
+            var added = new GPlaylistEntry[(int) nAdded];
+            for (int i = 0; i < nAdded; i++) {
+                var song = (GSongInfo) source.getItem((int) position + i);
+                if (song == null) {
+                    // Source mutated under us; bail out and let a later event reconcile.
+                    return;
+                }
+                added[i] = GPlaylistEntry.of(playlistId, song, (int) position + i);
+            }
+            Utils.runOnMainThread(() -> {
+                this.listModel.splice((int) position, (int) nRemoved, added);
+                // Renumber the tail so GPlaylistEntry.position stays consistent with index,
+                // and rebuild queueItemId — it embeds position, and applyHighlightFor /
+                // clearHighlightFor look entries up by exact qid match.
+                int total = this.listModel.getNItems();
+                int tailStart = (int) position + (int) nAdded;
+                for (int i = tailStart; i < total; i++) {
+                    var entry = this.listModel.getItem(i);
+                    if (entry != null) {
+                        entry.setPosition(i);
+                        entry.setQueueItemId(GPlaylistEntry.makeQueueItemId(playlistId, entry.song().id(), i));
+                    }
+                }
+            });
+        });
+    }
+
+    public void unbindSource() {
+        if (this.sourceItemsChangedSignal != null) {
+            this.sourceItemsChangedSignal.disconnect();
+            this.sourceItemsChangedSignal = null;
+        }
+        this.boundSource = null;
+    }
+
     @Override
     public void onStateChanged(AppManager.AppState state) {
         var prev = prevState.get();
@@ -771,84 +856,45 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         if (!playingItemChanged && !stateChanged) {
             return;
         }
-        // Capture prev/next before the main-thread hop so the lambda sees the snapshot
-        // observed in this emission, not whatever the AtomicReference holds when it runs.
-        var prevPlaying = prev.playingItem();
         var nextPlaying = next.playingItem();
-        var prevQid = prevPlaying.map(PlayItemId::queueItemId);
-        var nextQid = nextPlaying.map(PlayItemId::queueItemId);
-        boolean qidChanged = !prevQid.equals(nextQid);
-        Utils.runOnMainThread(() -> {
-            // Only clear the previous cell if the qid actually moved. If the PlayItemId
-            // record changed only because its songId field shifted (transient mismatch
-            // between the nowPlaying and queue.playingItemId emissions), the cell is the
-            // same one we're about to re-highlight — clearing it would cause a flicker.
-            if (qidChanged) {
-                prevPlaying.ifPresent(this::clearHighlightFor);
-            }
-            nextPlaying.ifPresent(p -> applyHighlightFor(p, playingState));
-        });
+        Utils.runOnMainThread(() -> refreshAllHighlights(nextPlaying, playingState));
     }
 
     /**
-     * Clear the highlight on cells matching {@code p}.
+     * Clear whichever cells were last highlighted, then highlight the cells matching
+     * {@code playingItem}. Clearing is O(1) via cached refs; finding the new cell is
+     * O(songId-bucket size), typically 1.
      *
-     * <p>Looks up the per-songId list and scans for the cell whose currently-bound qid
-     * matches {@code p.queueItemId()}. If no exact qid match is found, the qid is treated
-     * as stale (typical after {@code setSongs()} rebuilt entries with shifted positions)
-     * and every cell in the songId list is cleared as a fallback.
+     * <p>The cached cell may have been recycled to a different entry since we highlighted
+     * it. We clear it unconditionally: {@code NowPlayingCell.unbind()} does not reset its
+     * visual state, so a recycled-but-not-yet-rebound cell can carry a stale highlight.
+     * If the cell happens to be the one that should now be highlighted, the apply pass
+     * below restores it.
+     *
+     * <p>Must be called on the GTK main thread.
      */
-    private void clearHighlightFor(PlayItemId p) {
-        var nowList = nowPlayingBySongId.get(p.songId());
-        if (nowList != null) {
-            NowPlayingCell match = null;
-            for (var c : nowList) {
-                var be = c.boundEntry;
-                if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
-                    match = c;
-                    break;
-                }
-            }
-            if (match != null) {
-                match.updateCellIsPlaying(false, NowPlayingState.NONE);
-            } else {
-                for (var c : nowList) {
-                    c.updateCellIsPlaying(false, NowPlayingState.NONE);
-                }
-            }
+    private void refreshAllHighlights(Optional<PlayItemId> playingItem, NowPlayingState playingState) {
+        if (this.highlightedNowPlayingCell != null) {
+            this.highlightedNowPlayingCell.updateCellIsPlaying(false, NowPlayingState.NONE);
+            this.highlightedNowPlayingCell = null;
         }
-        var titleList = titleBySongId.get(p.songId());
-        if (titleList != null) {
-            TitleArtistCell match = null;
-            for (var c : titleList) {
-                var be = c.boundEntry;
-                if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
-                    match = c;
-                    break;
-                }
-            }
-            if (match != null) {
-                match.updateRow(false);
-            } else {
-                for (var c : titleList) {
-                    c.updateRow(false);
-                }
-            }
+        if (this.highlightedTitleCell != null) {
+            this.highlightedTitleCell.updateRow(false);
+            this.highlightedTitleCell = null;
         }
-    }
 
-    /**
-     * Highlight the cell whose qid matches {@code p}. No fallback — if the qid is stale,
-     * the highlight is missed on this emission and will be picked up next time the cell
-     * binds (cells call isPlayingEntry in {@code bind()}).
-     */
-    private void applyHighlightFor(PlayItemId p, NowPlayingState playingState) {
+        if (playingItem.isEmpty()) {
+            return;
+        }
+        var p = playingItem.get();
+
         var nowList = nowPlayingBySongId.get(p.songId());
         if (nowList != null) {
             for (var c : nowList) {
                 var be = c.boundEntry;
                 if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
                     c.updateCellIsPlaying(true, playingState);
+                    this.highlightedNowPlayingCell = c;
                     break;
                 }
             }
@@ -859,6 +905,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 var be = c.boundEntry;
                 if (be != null && p.queueItemId().equals(be.getQueueItemId())) {
                     c.updateRow(true);
+                    this.highlightedTitleCell = c;
                     break;
                 }
             }
