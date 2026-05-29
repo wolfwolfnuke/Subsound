@@ -219,3 +219,16 @@ scale slider {
     text-decoration-style: solid;
     opacity: 1.0;
 }
+
+/* Fade to the chrome's own view background, not black. Same-color fade reads as a
+ * subtle "content is being prepared" curtain; jank in the timing is far less obvious
+ * than a black flash. */
+.playlist-loading-overlay {
+    background-color: @view_bg_color;
+    opacity: 0;
+    transition: opacity 250ms ease-in-out;
+}
+
+.playlist-loading-overlay.visible {
+    opacity: 1;
+}

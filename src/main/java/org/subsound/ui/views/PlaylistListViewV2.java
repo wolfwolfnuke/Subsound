@@ -70,6 +70,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -126,6 +127,7 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
     private volatile int lastKnownSongCount = 0;
     @Nullable
     private SignalConnection<?> playlistNotifySignal = null;
+    private final AtomicLong setSongsGeneration = new AtomicLong();
     @Nullable
     private SignalConnection<?> sourceItemsChangedSignal = null;
     @Nullable
@@ -699,8 +701,27 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
         });
     }
 
-    public void setSongs(List<GSongInfo> songs, ServerClient.PlaylistSimple playlist) {
+    private static final int SPLICE_CHUNK_SIZE = 50;
+    // GTK4 ColumnView only realizes the first ~230 rows; per-item attach cost is paid for
+    // those but is essentially free past that point. Chunk the visible prefix to keep the
+    // main loop responsive (fade-in animation), then splice the tail in one call.
+    private static final int CHUNKED_PREFIX = 250;
+
+    /**
+     * Replace the displayed list with {@code songs}. The returned future completes on the
+     * GTK main thread when the last chunk has landed (i.e. the ColumnView has finished
+     * reacting to all items-changed events). Callers that need to drop a loading
+     * affordance should chain off this future.
+     *
+     * <p>The splice is chunked: ColumnView's per-item reaction (≈ 1–4ms/item via FFI) is
+     * unavoidable, but splitting the work into ~50-row batches and yielding the main loop
+     * between them keeps animations running and the UI responsive instead of frozen for
+     * the full duration. If a newer {@code setSongs} starts before chunks finish, the
+     * earlier call's remaining chunks are aborted via a generation token.
+     */
+    public CompletableFuture<Void> setSongs(List<GSongInfo> songs, ServerClient.PlaylistSimple playlist) {
         long tStart = System.nanoTime();
+        long generation = this.setSongsGeneration.incrementAndGet();
         var prev = this.currentPlaylist.get();
         boolean playlistChanged = prev == null || !prev.id().equals(playlist.id());
         this.currentPlaylist.set(playlist);
@@ -714,7 +735,12 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
             items[i] = GPlaylistEntry.of(playlistId, song, i);
         }
         long tAfterAlloc = System.nanoTime();
+        var done = new CompletableFuture<Void>();
         Utils.runOnMainThread(() -> {
+            if (this.setSongsGeneration.get() != generation) {
+                done.complete(null);
+                return;
+            }
             long tMainStart = System.nanoTime();
             this.titleLabel.setLabel(playlist.name());
             this.menuButton.setVisible(playlist.kind() == PlaylistKind.NORMAL);
@@ -726,25 +752,19 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                 this.searchQuery = "";
                 this.searchFilter.changed(FilterChange.DIFFERENT);
             }
-            long tBeforeSplice = System.nanoTime();
-            // Single pipeline pass: removeAll() + splice(0, 0, items) used to double-walk the
-            // FilterListModel → SortListModel → ColumnView chain. splice(0, N, items) collapses
-            // the teardown and repopulate into one items-changed event.
             int oldN = this.listModel.getNItems();
             if (oldN > 0 && n > 0) {
                 this.columnView.scrollTo(0, this.titleCol, ListScrollFlags.NONE, null);
             }
-            this.listModel.splice(0, oldN, items);
-            long tAfterSplice = System.nanoTime();
+            this.listModel.splice(0, oldN, new GPlaylistEntry[0]);
             this.resetColumnSorting();
-            long tAfter_resetColumnSorting = System.nanoTime();
+            long tAfterClear = System.nanoTime();
 
             // Subscribe to GPlaylist metadata changes for the current playlist
             if (this.playlistNotifySignal != null) {
                 this.playlistNotifySignal.disconnect();
                 this.playlistNotifySignal = null;
             }
-
             if (playlist.kind() == PlaylistKind.NORMAL) {
                 var store = appManager.getPlaylistsListStore();
                 for (int i = 0; i < store.getNItems(); i++) {
@@ -759,21 +779,52 @@ public class PlaylistListViewV2 extends Box implements AppManager.StateListener 
                     }
                 }
             }
+
+            spliceChunked(items, 0, generation, done, tStart, tAfterAlloc, tMainStart, oldN, tAfterClear);
+        });
+        return done;
+    }
+
+    private void spliceChunked(GPlaylistEntry[] items, int from, long generation, CompletableFuture<Void> done,
+                                long tStart, long tAfterAlloc, long tMainStart, int oldN, long tAfterClear) {
+        if (this.setSongsGeneration.get() != generation) {
+            done.complete(null);
+            return;
+        }
+        int prefixEnd = Math.min(CHUNKED_PREFIX, items.length);
+        int end;
+        if (from < prefixEnd) {
+            // Within the visible-prefix window: small chunk so the main loop can render
+            // the fade-in animation between batches.
+            end = Math.min(from + SPLICE_CHUNK_SIZE, prefixEnd);
+        } else {
+            // Past the prefix: ColumnView won't realize these rows, so the per-item attach
+            // cost is negligible. Dump the rest in one splice and finish.
+            end = items.length;
+        }
+        if (end > from) {
+            var chunk = new GPlaylistEntry[end - from];
+            System.arraycopy(items, from, chunk, 0, end - from);
+            this.listModel.splice(this.listModel.getNItems(), 0, chunk);
+        }
+        if (end < items.length) {
+            Utils.runOnMainThread(() -> spliceChunked(items, end, generation, done,
+                    tStart, tAfterAlloc, tMainStart, oldN, tAfterClear));
+        } else {
             long tMainEnd = System.nanoTime();
             log.info(
-                    "setSongs: n={} alloc={}ms mainEnter={}ms header={}ms splice(old={})={}ms playlistScan={}ms resetColumnSorting={} total(main)={}ms total(all)={}ms",
-                    n,
+                    "setSongs: n={} alloc={}ms mainEnter={}ms clear(old={})={}ms chunkedAdd={}ms total(main)={}ms total(all)={}ms",
+                    items.length,
                     (tAfterAlloc - tStart) / 1_000_000,
                     (tMainStart - tAfterAlloc) / 1_000_000,
-                    (tBeforeSplice - tMainStart) / 1_000_000,
                     oldN,
-                    (tAfterSplice - tBeforeSplice) / 1_000_000,
-                    (tMainEnd - tAfterSplice) / 1_000_000,
-                    (tAfter_resetColumnSorting - tAfterSplice) / 1_000_000,
+                    (tAfterClear - tMainStart) / 1_000_000,
+                    (tMainEnd - tAfterClear) / 1_000_000,
                     (tMainEnd - tMainStart) / 1_000_000,
                     (tMainEnd - tStart) / 1_000_000
             );
-        });
+            done.complete(null);
+        }
     }
 
     /**

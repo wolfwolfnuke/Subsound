@@ -17,11 +17,10 @@ import org.gnome.gtk.ListItem;
 import org.gnome.gtk.ListTabBehavior;
 import org.gnome.gtk.ListView;
 import org.gnome.gtk.Orientation;
+import org.gnome.gtk.Overlay;
 import org.gnome.gtk.ScrolledWindow;
 import org.gnome.gtk.SignalListItemFactory;
 import org.gnome.gtk.SingleSelection;
-import org.gnome.gtk.Stack;
-import org.gnome.gtk.StackTransitionType;
 import org.gnome.pango.EllipsizeMode;
 import org.javagi.gobject.SignalConnection;
 import org.slf4j.Logger;
@@ -61,9 +60,8 @@ public class PlaylistsListView extends Box {
     private final PlaylistListViewV2 starredPlaylistView;
     private final NavigationPage playlistPage;
     private final NavigationPage starredPlaylistPage;
-    private final Stack contentStack;
-    private static final String STACK_LOADING = "loading";
-    private static final String STACK_CONTENT = "content";
+    private final Overlay contentOverlay;
+    private final Box loadingOverlay;
     private final SingleSelection<GPlaylist> selectionModel;
     private final GSongStore songStore;
     private int currentIndex = 0;
@@ -79,22 +77,24 @@ public class PlaylistsListView extends Box {
         this.playlistListView.setHalign(Align.FILL);
         this.playlistListView.setValign(Align.FILL);
 
-        // Crossfade between the live ColumnView and a spinner during async loads.
-        // 150ms is short enough to feel responsive on cached fetches but long enough
-        // that the spinner registers visually when the server is slow.
-        this.contentStack = Stack.builder()
-                .setTransitionType(StackTransitionType.CROSSFADE)
-                .setTransitionDuration(150)
+        // Overlay (not Stack) keeps the V2 mapped throughout. The loading affordance is a
+        // plain Box with a CSS opacity transition; we toggle the "visible" class to fade
+        // it in/out. The dim stays alive on top so clicks pass through (setCanTarget=false)
+        // and the fade is GTK-driven, not Java-tweened.
+        this.loadingOverlay = Box.builder().setHexpand(true).setVexpand(true).build();
+        this.loadingOverlay.addCssClass("playlist-loading-overlay");
+        this.loadingOverlay.setCanTarget(false);
+
+        this.contentOverlay = Overlay.builder()
+                .setChild(this.playlistListView)
                 .setHexpand(true)
                 .setVexpand(true)
                 .build();
-        this.contentStack.addNamed(LoadingSpinner.fullscreen(""), STACK_LOADING);
-        this.contentStack.addNamed(this.playlistListView, STACK_CONTENT);
-        this.contentStack.setVisibleChildName(STACK_CONTENT);
+        this.contentOverlay.addOverlay(this.loadingOverlay);
 
         this.playlistPage = NavigationPage.builder()
                 .setTag("page-2")
-                .setChild(this.contentStack)
+                .setChild(this.contentOverlay)
                 .setTitle("")
                 .setHexpand(true)
                 .build();
@@ -326,28 +326,29 @@ public class PlaylistsListView extends Box {
             return;
         }
 
-        // Show the spinner before the page swap so the user sees a crossfade into the
-        // loading state, not a flash of the previous playlist's rows.
+        // Two-step show: first clear any leftover .visible class and swap pages, then
+        // schedule the addCssClass("visible") on the NEXT idle. GTK4 needs at least one
+        // paint with opacity:0 before it will animate the transition to opacity:1;
+        // adding the class in the same idle as the page swap makes GTK skip the tween
+        // and snap to the end state.
         Utils.runOnMainThread(() -> {
-            this.contentStack.setVisibleChildName(STACK_LOADING);
+            this.loadingOverlay.removeCssClass("visible");
             this.playlistPage.setTitle(playlist.name());
             this.view.setContent(this.playlistPage);
+            Utils.runOnMainThread(() -> this.loadingOverlay.addCssClass("visible"));
         });
 
         doAsync(() -> switch (playlist.kind()) {
             case NORMAL -> this.appManager.useClient(cl -> cl.getPlaylist(playlist.id())).songs();
             case DOWNLOADED -> this.appManager.listDownloadedSongInfos();
             case STARRED -> throw new IllegalStateException("handled above");
-        }).thenApply(data -> {
+        }).thenAccept(data -> {
             var songs = data.stream().map(songStore::newInstance).toList();
-            this.playlistListView.setSongs(songs, playlist);
-            // setSongs hops to the main thread to splice; queue the page swap behind it
-            // so the spinner stays up until real rows are rendered.
-            Utils.runOnMainThread(() -> this.contentStack.setVisibleChildName(STACK_CONTENT));
-            return data;
+            this.playlistListView.setSongs(songs, playlist)
+                    .thenRun(() -> this.loadingOverlay.removeCssClass("visible"));
         }).exceptionally(ex -> {
             log.warn("setSelectedPlaylist failed for {}", playlist.id(), ex);
-            Utils.runOnMainThread(() -> this.contentStack.setVisibleChildName(STACK_CONTENT));
+            Utils.runOnMainThread(() -> this.loadingOverlay.removeCssClass("visible"));
             return null;
         });
     }
