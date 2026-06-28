@@ -24,6 +24,7 @@ public interface ServerClient {
     ServerType getServerType();
 
     ListArtists getArtists();
+    List<ArtistAlbumInfo> getAlbumList2(String type, int size, int offset);
     ArtistInfo getArtistInfo(String artistId);
     ArtistInfo getArtistWithAlbums(String artistId);
     AlbumInfo getAlbumInfo(String albumId);

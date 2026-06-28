@@ -444,6 +444,11 @@ public class CachingClient implements ServerClient {
         return delegate.search(query);
     }
 
+    @Override
+    public List<ArtistAlbumInfo> getAlbumList2(String type, int size, int offset) {
+        return delegate.getAlbumList2(type, size, offset);
+    }
+
     // Conversion methods: database records -> ServerClient types
 
     private ArtistEntry toArtistEntry(Artist artist) {

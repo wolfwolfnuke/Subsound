@@ -22,6 +22,7 @@ public class AppNavigation {
     public sealed interface AppRoute {
         record RouteHome() implements AppRoute {}
         record RouteStarred() implements AppRoute {}
+        record RouteSongsOverview() implements AppRoute {}
         record RoutePlaylistsOverview(Optional<PlaylistIdentifier> preselect) implements AppRoute {}
         record SettingsPage() implements AppRoute {}
         record RouteArtistsOverview() implements AppRoute {}

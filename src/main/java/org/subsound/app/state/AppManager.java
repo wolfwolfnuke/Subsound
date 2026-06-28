@@ -31,6 +31,7 @@ import org.subsound.persistence.ThumbnailCache;
 import org.subsound.persistence.database.Database;
 import org.subsound.persistence.database.DatabaseServerService;
 import org.subsound.persistence.database.DatabaseService;
+import org.subsound.persistence.database.DBSong;
 import org.subsound.persistence.database.DownloadQueueItem;
 import org.subsound.persistence.database.DownloadQueueItem.DownloadStatus;
 import org.subsound.persistence.database.PlayQueueItemRow;
@@ -423,6 +424,61 @@ public class AppManager {
                 DownloadStatus.DOWNLOADING,
                 DownloadStatus.FAILED
         ));
+    }
+
+    /**
+     * Returns all songs cached in the local database.
+     */
+    public List<SongInfo> getAllSongsFromDb() {
+        return dbService.listAllSongs().stream()
+                .map(song -> {
+                    var client = this.client.get();
+                    return client != null ? client.dbSongToSongInfo(song) : null;
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * Syncs all songs from the server into the local database, then returns them.
+     * Fetches albums in batches and caches every song found.
+     */
+    public CompletableFuture<List<SongInfo>> syncAllSongsAsync() {
+        return doAsync(() -> {
+            log.info("syncAllSongs: starting full song sync");
+            var allSongs = new ArrayList<SongInfo>();
+            var client = this.client.get();
+            if (client == null) {
+                log.warn("syncAllSongs: no server client configured");
+                return allSongs;
+            }
+
+            int offset = 0;
+            int batchSize = 500;
+            List<ServerClient.ArtistAlbumInfo> batch;
+            var serverUUID = UUID.fromString(SERVER_ID);
+
+            do {
+                batch = client.getAlbumList2("alphabeticalByName", batchSize, offset);
+                if (batch != null) {
+                    for (var album : batch) {
+                        try {
+                            var albumInfo = client.getAlbumInfo(album.id());
+                            for (var song : albumInfo.songs()) {
+                                dbService.insert(DBSong.from(song, serverUUID));
+                                allSongs.add(song);
+                            }
+                        } catch (Exception e) {
+                            log.warn("syncAllSongs: failed to fetch album {}: {}", album.id(), e.getMessage());
+                        }
+                    }
+                    offset += batchSize;
+                }
+            } while (batch != null && batch.size() == batchSize);
+
+            log.info("syncAllSongs: completed, synced {} songs", allSongs.size());
+            return allSongs;
+        });
     }
 
     public AppManager setToastOverlay(ToastOverlay toastOverlay) {

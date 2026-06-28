@@ -20,6 +20,7 @@ import org.subsound.ui.components.SettingsPage;
 import org.subsound.ui.views.AlbumInfoLoader;
 import org.subsound.ui.views.ArtistInfoLoader;
 import org.subsound.ui.views.ArtistListLoader;
+import org.subsound.ui.views.AllSongsPage;
 import org.subsound.ui.views.FrontpagePage;
 import org.subsound.ui.views.PlaylistsViewLoader;
 import org.subsound.ui.views.TestPlayerPage;
@@ -278,6 +279,10 @@ public class MainApplication {
                 viewStack.setVisibleChildName("starredPage");
                 yield false;
             }
+            case AppNavigation.AppRoute.RouteSongsOverview songs -> {
+                viewStack.setVisibleChildName("songsPage");
+                yield false;
+            }
             case AppNavigation.AppRoute.SettingsPage s -> {
                 var cfg = this.appManager.getConfig();
                 var info = cfg.serverConfig == null ? null : new ServerConfigForm.SettingsInfo(
@@ -350,6 +355,15 @@ public class MainApplication {
             );
             artistsContainer.append(artistListBox);
             ViewStackPage artistsPage = viewStack.addTitledWithIcon(artistsContainer, "artistsPage", "Artists", Icons.Artist.getIconName());
+        }
+        {
+            var songsContainer = BoxFullsize().setValign(Align.FILL).setHalign(Align.FILL).build();
+            var songsPage = new AllSongsPage(
+                    appManager,
+                    appManager::handleAction
+            );
+            songsContainer.append(songsPage);
+            ViewStackPage songsViewPage = viewStack.addTitledWithIcon(songsContainer, "songsPage", "Songs", Icons.Music.getIconName());
         }
         if (cfg.onboarding != OnboardingState.DONE) {
             var onboardingOverlay = getOnboardingOverlay(this.appManager, viewStack);

@@ -524,6 +524,24 @@ public class DatabaseServerService {
         }
     }
 
+    public List<DBSong> listAllSongs() {
+        List<DBSong> songs = new ArrayList<>();
+        String sql = "SELECT * FROM songs WHERE server_id = ? ORDER BY album_name, disc_number, track_number";
+        try (Connection conn = database.openConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, this.serverId.toString());
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    songs.add(mapResultSetToSong(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to list all songs for server: {}", serverId, e);
+            throw new RuntimeException("Failed to list all songs", e);
+        }
+        return songs;
+    }
+
     public Optional<DBSong> getSongById(String songId) {
         String sql = "SELECT * FROM songs WHERE server_id = ? AND id = ?";
         try (Connection conn = database.openConnection();

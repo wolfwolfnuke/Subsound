@@ -987,7 +987,16 @@ public class SubsonicClientV2 implements ServerClient {
     }
 
     private List<ArtistAlbumInfo> loadAlbumList(String type) {
-        var res = fetchAndCheck("/rest/getAlbumList2", Map.of("type", type), GetAlbumList2ResponseJson.class);
+        return getAlbumList2(type, 20, 0);
+    }
+
+    @Override
+    public List<ArtistAlbumInfo> getAlbumList2(String type, int size, int offset) {
+        var res = fetchAndCheck("/rest/getAlbumList2", Map.of(
+                "type", type,
+                "size", String.valueOf(size),
+                "offset", String.valueOf(offset)
+        ), GetAlbumList2ResponseJson.class);
         var albumList = res.subsonicResponse.albumList2;
         if (albumList == null || albumList.album() == null) {
             return List.of();
